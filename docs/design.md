@@ -322,9 +322,11 @@ with `pebble-challtestsrv` as the DNS, and a real OpenBao in Docker.
 9.4.6. Step 9.4.1 is already useful by itself. It replaces the KV pattern of keeping the description
 twice, in the data and in `custom_metadata` (§1.2).
 
-9.4.7. Status: 9.4.1 is done, with unit tests against in-memory storage and a manual run against
-OpenBao 2.7.0 (`make dev`). Still to do in 9.4.1: an automated test against a real OpenBao in
-Docker, and a release workflow.
+9.4.7. Status: 9.4.1 is done, with unit tests against in-memory storage and an integration test
+(`make integration`) that runs the plugin in OpenBao 2.7.0 in Docker. The integration test covers
+importing, the policy split of §4.2, `covers`, a plugin reload, and that the audit log has no key
+in clear text (§7.5). The audit device is declared in the server configuration, because OpenBao
+2.x does not allow enabling one through the API. Still to do in 9.4.1: a release workflow.
 
 ## 10. Open questions
 

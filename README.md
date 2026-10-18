@@ -17,7 +17,8 @@ You need Go 1.27 or later and the `bao` CLI.
 
 ```sh
 make test
-make dev        # builds, starts a throwaway OpenBao dev server on 127.0.0.1:18200
+make integration  # needs Docker: runs the plugin in OpenBao (quay.io/openbao/openbao, override with BAO_IMAGE)
+make dev          # builds, starts a throwaway OpenBao dev server on 127.0.0.1:18200
 ```
 
 In another terminal:
