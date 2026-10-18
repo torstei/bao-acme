@@ -182,7 +182,7 @@ func TestRollbackRefusals(t *testing.T) {
 	h.ok(logical.UpdateOperation, "certs/a/destroy", map[string]any{"versions": "1"})
 	h.fails(logical.UpdateOperation, "certs/a/rollback", map[string]any{"version": 1}, "destroyed")
 
-	h.b.now = func() time.Time { return time.Now().Add(200 * 24 * time.Hour) }
+	h.b.clockOffset.Store(int64(200 * 24 * time.Hour))
 	h.fails(logical.UpdateOperation, "certs/a/rollback", map[string]any{"version": 2}, "expired")
 }
 

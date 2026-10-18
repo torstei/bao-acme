@@ -9,7 +9,7 @@ The goal is for the engine to obtain and renew certificates itself, over ACME wi
 part is not built yet. Today it stores certificates that something else issued, such as certbot.
 See [docs/design.md](docs/design.md) for the design and the plan.
 
-> Status: early. Imported certificates work (v0.1.0). The engine obtains certificates over ACME with DNS-01; renewal comes next.
+> Status: early. Imported certificates work (v0.1.0). The engine obtains and renews certificates over ACME with DNS-01.
 
 ## Build and try it
 
@@ -66,13 +66,18 @@ tag can change, so a fix is always a new version.
 | `certs/<name>/destroy` | write | `versions`: destroy their private keys, keep their descriptions. |
 | `certs/` | list | Names. With `?covers=<host>`, only those whose names cover the host. |
 
-Managed certificates, obtained by the engine over ACME with DNS-01 (renewal is not built yet):
+Managed certificates, obtained and renewed by the engine over ACME with DNS-01:
 
 | Path | Method | |
 |---|---|---|
 | `certs/<name>` | write | `names`, `account`, `dns_provider`, optionally `key_type` (default `ecdsa-p256`). Returns at once; the certificate is obtained in the background. An imported certificate under the same name keeps its versions. |
 | `certs/<name>/info` | read | Adds `definition` and `issuance`: why one is needed, last attempt and success, last error, failures, next attempt. |
+| `certs/<name>/renew` | write | Renew now, ignoring the schedule and any backoff. |
 | `certs/<name>/unmanage` | write | Back to import-only, keeping the versions. |
+
+Renewal follows the CA's suggested window (ARI, RFC 9773) where offered, which also picks up a
+CA's request to renew early, and otherwise happens when a third of the lifetime remains.
+`certs/<name>/info` shows the schedule under `issuance.renewal`.
 
 A complete setup with Domeneshop:
 

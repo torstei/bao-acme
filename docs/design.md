@@ -226,6 +226,11 @@ once.
 4.2.6. An account that is not yet registered is registered at the first issuance, if its terms of
 service are agreed to.
 
+4.2.7. *Phase 4:* `certs/<name>/renew` renews a managed certificate now, ignoring its schedule and
+clearing any backoff. `info.issuance` adds `renew_requested`, and `renewal` for the current version:
+`renew_at`, `source` (`ari` or `default`), `window_start`, `window_end`, `explanation_url`,
+`ari_error`, `checked_time` and `next_check_time`.
+
 Because the key and the description are on different paths, policies get the split that KV cannot
 give:
 
@@ -432,6 +437,23 @@ example after a mass revocation.
 
 6.4.3. Certificate lifetimes are shrinking, so this must not assume 90 days. The CA/Browser Forum's
 ballot SC-081 takes the maximum down to 47 days by 2029.
+
+6.4.4. *Phase 4:* the schedule belongs to one version, identified by its `sha256`, and is worked
+out in the background job that also issues. With ARI, `renew_at` is a random time in the CA's
+suggested window. Asking again keeps the same time as long as the window still contains it, so
+renewals do not move about. ARI is asked again after the CA's `Retry-After`, clamped to between
+one and 24 hours, and that is how a request to renew early (a revocation, a mass incident) is
+picked up.
+
+6.4.5. Without ARI, `renew_at` is a third of the lifetime before expiry, less up to a thirtieth of
+the lifetime as jitter. That covers a CA without ARI (checked again daily), a certificate the CA
+does not know, such as an imported one from another CA (also daily), and a failed request
+(retried after an hour, with the error in `ari_error`). Imported certificates from the same CA
+get ARI like issued ones, because asking needs no account.
+
+6.4.6. A renewal names the certificate it replaces (RFC 9773 `replaces`) only when this account
+issued it, because a CA refuses to link certificates across accounts. If the CA answers that the
+certificate was already replaced, lego orders again without it.
 
 6.5. **Failures:** exponential backoff per certificate, within the CA's rate limits. Every failure is
 kept in `status` and in the logs. When renewals keep failing, `info` shows how close the current

@@ -4,6 +4,7 @@ package backend
 
 import (
 	"context"
+	"crypto/x509"
 	"fmt"
 	"sort"
 	"strconv"
@@ -27,6 +28,8 @@ type certMeta struct {
 	// Managed is set for a certificate the engine obtains itself.
 	Managed  *managedSpec   `json:"managed,omitempty"`
 	Issuance *issuanceState `json:"issuance,omitempty"`
+	// Renewal is when to renew the current version of a managed certificate.
+	Renewal *renewalSchedule `json:"renewal,omitempty"`
 }
 
 type identity struct {
@@ -52,6 +55,14 @@ type certVersion struct {
 
 func (v *certVersion) destroyed() bool {
 	return v.DestroyedTime != nil
+}
+
+func (v *certVersion) leaf() (*x509.Certificate, error) {
+	certs, err := cert.ParseCertificates(v.Certificate)
+	if err != nil {
+		return nil, fmt.Errorf("version %d: %w", v.Version, err)
+	}
+	return certs[0], nil
 }
 
 func metaKey(name string) string {
