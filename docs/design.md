@@ -326,7 +326,9 @@ twice, in the data and in `custom_metadata` (§1.2).
 (`make integration`) that runs the plugin in OpenBao 2.7.0 in Docker. The integration test covers
 importing, the policy split of §4.2, `covers`, a plugin reload, and that the audit log has no key
 in clear text (§7.5). The audit device is declared in the server configuration, because OpenBao
-2.x does not allow enabling one through the API. Still to do in 9.4.1: a release workflow.
+2.x does not allow enabling one through the API. Releases are tag-driven: static linux/amd64 and
+linux/arm64 binaries with `SHA256SUMS` and build provenance attestations, published only for a
+commit whose CI has passed. The signed OCI image of §9.3 comes later.
 
 ## 10. Open questions
 

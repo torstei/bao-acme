@@ -32,12 +32,25 @@ bao read certificates/certs/example.com          # certificate and key
 
 ## Installing in a real OpenBao
 
+Each [release](https://github.com/torstei/bao-acme/releases) has a static binary for linux/amd64
+and linux/arm64, a `SHA256SUMS` file, and build provenance:
+
 ```sh
-make build
-cp bin/bao-acme /path/to/plugin_directory/
-bao plugin register -sha256="$(sha256sum bin/bao-acme | cut -d' ' -f1)" secret bao-acme
+curl -LO https://github.com/torstei/bao-acme/releases/latest/download/bao-acme_linux_amd64
+gh attestation verify bao-acme_linux_amd64 --repo torstei/bao-acme
+
+install -m 0755 bao-acme_linux_amd64 /path/to/plugin_directory/bao-acme
+bao plugin register -sha256="$(sha256sum bao-acme_linux_amd64 | cut -d' ' -f1)" secret bao-acme
 bao secrets enable -path=certificates bao-acme
 ```
+
+Or build it yourself with `make build`, which writes `bin/bao-acme`.
+
+## Releasing
+
+Push an annotated tag `vX.Y.Z` on a commit that has passed CI on `main`. The release workflow
+refuses a commit without passing `checks` and `integration` runs. The tag's annotation leads the
+release notes.
 
 ## API
 
