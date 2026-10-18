@@ -231,13 +231,17 @@ func TestReadsStorageV1Managed(t *testing.T) {
 	if info.Data["managed"] != true || info.Data["source"] != "acme:le" || def["account"] != "le" || def["dns_provider"] != "bind" {
 		t.Errorf("managed info = %v", info.Data)
 	}
-	if issuance := info.Data["issuance"].(map[string]any); issuance["last_success_time"].(time.Time).IsZero() || issuance["needed"] != "" {
+	issuance := info.Data["issuance"].(map[string]any)
+	if issuance["last_success_time"].(time.Time).IsZero() || issuance["needed"] != "" {
 		t.Errorf("managed issuance = %v", issuance)
+	}
+	if renewal, _ := issuance["renewal"].(map[string]any); renewal["source"] != scheduleARI || renewal["renew_at"].(time.Time).IsZero() || renewal["window_end"].(time.Time).IsZero() {
+		t.Errorf("managed renewal = %v", issuance["renewal"])
 	}
 
 	failing := h.ok(logical.ReadOperation, "certs/failing/info", nil)
-	issuance := failing.Data["issuance"].(map[string]any)
-	if issuance["failures"] != 1 || issuance["last_error"] == "" || issuance["needed"] != "no certificate yet" || issuance["next_attempt_time"].(time.Time).IsZero() {
+	issuance = failing.Data["issuance"].(map[string]any)
+	if issuance["failures"] != 2 || issuance["renew_requested"] != true || issuance["last_error"] == "" || issuance["needed"] != "no certificate yet" || issuance["next_attempt_time"].(time.Time).IsZero() {
 		t.Errorf("failing issuance = %v", issuance)
 	}
 }
@@ -258,12 +262,14 @@ func freshMeta(t *testing.T, e *managedEnv, name string) map[string]any {
 func TestWritesStorageV1ManagedFields(t *testing.T) {
 	e := newManagedEnv(t)
 	e.define("managed", "managed.example.test")
-	e.waitFor("managed", "the certificate", hasVersion(1))
+	e.waitFor("managed", "the certificate and its schedule", func(m *certMeta) bool { return m.CurrentVersion == 1 && m.Renewal != nil })
 	missingFields(t, "certs/managed/meta", readFixture(t, "certs/managed/meta"), freshMeta(t, e, "managed"))
 
 	e.ok(logical.UpdateOperation, "config/dns/bind", map[string]any{"tsig_secret": "d3Jvbmd3cm9uZ3dyb25nd3Jvbmd3cm9uZw=="})
 	e.define("failing", "failing.example.test")
 	e.waitFor("failing", "a failure", func(m *certMeta) bool { return m.Issuance != nil && m.Issuance.Failures == 1 })
+	e.ok(logical.UpdateOperation, "certs/failing/renew", nil)
+	e.waitFor("failing", "a second failure", func(m *certMeta) bool { return m.Issuance.Failures == 2 })
 	missingFields(t, "certs/failing/meta", readFixture(t, "certs/failing/meta"), freshMeta(t, e, "failing"))
 }
 

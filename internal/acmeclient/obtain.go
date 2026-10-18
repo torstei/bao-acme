@@ -5,10 +5,14 @@ package acmeclient
 import (
 	"context"
 	"crypto"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
+	"github.com/go-acme/lego/v5/acme"
+	"github.com/go-acme/lego/v5/acme/api"
 	"github.com/go-acme/lego/v5/certificate"
 	"github.com/go-acme/lego/v5/challenge"
 	"github.com/go-acme/lego/v5/challenge/dns01"
@@ -22,10 +26,27 @@ var ErrNoResolvers = errors.New("no DNS resolvers: set dns_resolvers in config/n
 // time.
 var dnsMu sync.Mutex
 
-// Obtain orders a certificate for names over DNS-01, publishing challenge
-// records through provider, and returns the PEM certificate chain, leaf
-// first. The account must be registered.
-func Obtain(ctx context.Context, a *Account, provider challenge.Provider, names []string, key crypto.Signer) ([]byte, error) {
+// ErrNoARI means the CA does not offer renewal information (RFC 9773).
+var ErrNoARI = api.ErrNoARI
+
+// ErrNoRenewalInfoForCert means the CA refused renewal information for this
+// certificate, typically because another CA issued it. Asking again soon
+// will not help.
+var ErrNoRenewalInfoForCert = errors.New("the CA has no renewal information for this certificate")
+
+// Order is what to obtain.
+type Order struct {
+	Names []string
+	Key   crypto.Signer
+	// Replaces, when set, is the certificate this order renews, so the CA
+	// can link them (RFC 9773). It must be one this account was issued.
+	Replaces *x509.Certificate
+}
+
+// Obtain orders a certificate over DNS-01, publishing challenge records
+// through provider, and returns the PEM certificate chain, leaf first. The
+// account must be registered.
+func Obtain(ctx context.Context, a *Account, provider challenge.Provider, order Order) ([]byte, error) {
 	if a.AccountURL == "" {
 		return nil, errors.New("the account is not registered")
 	}
@@ -55,11 +76,17 @@ func Obtain(ctx context.Context, a *Account, provider challenge.Provider, names 
 	}))
 	defer dns01.SetDefaultClient(prev)
 
-	res, err := client.Certificate.Obtain(ctx, certificate.ObtainRequest{
-		Domains:    names,
-		PrivateKey: key,
+	req := certificate.ObtainRequest{
+		Domains:    order.Names,
+		PrivateKey: order.Key,
 		Bundle:     true,
-	})
+	}
+	if order.Replaces != nil {
+		if req.ReplacesCertID, err = api.MakeARICertID(order.Replaces); err != nil {
+			return nil, err
+		}
+	}
+	res, err := client.Certificate.Obtain(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("obtaining a certificate: %w", err)
 	}
@@ -80,4 +107,45 @@ func propagationOptions(d DNSSettings) dns01.ChallengeOption {
 		opts = append(opts, dns01.PropagationWait(d.PropagationDelay, false))
 	}
 	return dns01.CombineOptions(opts...)
+}
+
+// RenewalWindow is the CA's suggestion for when to renew a certificate.
+type RenewalWindow struct {
+	Start, End     time.Time
+	ExplanationURL string
+	// RetryAfter is when the CA suggests asking again; zero if it gave none.
+	RetryAfter time.Duration
+}
+
+// GetRenewalInfo asks the CA when to renew leaf. It returns ErrNoARI if the
+// CA does not offer renewal information. The account need not be
+// registered.
+func GetRenewalInfo(ctx context.Context, a *Account, leaf *x509.Certificate) (*RenewalWindow, error) {
+	client, _, err := newClient(a)
+	if err != nil {
+		return nil, err
+	}
+	info, err := client.Certificate.GetRenewalInfo(ctx, leaf)
+	if err != nil {
+		var problem *acme.ProblemDetails
+		if errors.As(err, &problem) && problem.HTTPStatus >= 400 && problem.HTTPStatus < 500 {
+			return nil, fmt.Errorf("%w: %v", ErrNoRenewalInfoForCert, err)
+		}
+		return nil, err
+	}
+	return &RenewalWindow{
+		Start:          info.SuggestedWindow.Start.UTC(),
+		End:            info.SuggestedWindow.End.UTC(),
+		ExplanationURL: info.ExplanationURL,
+		RetryAfter:     info.RetryAfter,
+	}, nil
+}
+
+// Revoke revokes a certificate this account was issued.
+func Revoke(ctx context.Context, a *Account, certPEM []byte) error {
+	client, _, err := newClient(a)
+	if err != nil {
+		return err
+	}
+	return client.Certificate.Revoke(ctx, certPEM)
 }

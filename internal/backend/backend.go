@@ -6,6 +6,7 @@ package backend
 import (
 	"context"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/openbao/openbao/sdk/v2/framework"
@@ -34,7 +35,8 @@ type backend struct {
 	*framework.Backend
 
 	locks []*locksutil.LockEntry
-	now   func() time.Time
+	// clockOffset moves now() for tests, safely while work runs.
+	clockOffset atomic.Int64
 
 	// storage outlives requests, for work in the background.
 	storage logical.Storage
@@ -45,7 +47,6 @@ type backend struct {
 func New() *backend {
 	b := &backend{
 		locks:  locksutil.CreateLocks(),
-		now:    time.Now,
 		issuer: newIssuer(),
 	}
 	b.Backend = &framework.Backend{
@@ -62,6 +63,7 @@ func New() *backend {
 			pathCertRollback(b),
 			pathCertDestroy(b),
 			pathCertUnmanage(b),
+			pathCertRenew(b),
 			pathCert(b),
 			pathAccountsList(b),
 			pathAccountRegister(b),
@@ -81,6 +83,10 @@ func New() *backend {
 func (b *backend) Setup(ctx context.Context, conf *logical.BackendConfig) error {
 	b.storage = conf.StorageView
 	return b.Backend.Setup(ctx, conf)
+}
+
+func (b *backend) now() time.Time {
+	return time.Now().Add(time.Duration(b.clockOffset.Load()))
 }
 
 func (b *backend) lock(name string) *locksutil.LockEntry {

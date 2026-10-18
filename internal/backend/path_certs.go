@@ -366,6 +366,19 @@ func issuanceData(m *certMeta, current *certVersion, now time.Time) map[string]a
 		data["last_error"] = st.LastError
 		data["failures"] = st.Failures
 		data["next_attempt_time"] = st.NextAttemptTime
+		data["renew_requested"] = st.RenewRequested
+	}
+	if r := m.Renewal; r != nil && current != nil && r.ForSHA256 == current.Description.SHA256 {
+		data["renewal"] = map[string]any{
+			"renew_at":        r.RenewAt,
+			"source":          r.Source,
+			"window_start":    r.WindowStart,
+			"window_end":      r.WindowEnd,
+			"explanation_url": r.ExplanationURL,
+			"ari_error":       r.ARIError,
+			"checked_time":    r.CheckedTime,
+			"next_check_time": r.NextCheckTime,
+		}
 	}
 	return data
 }

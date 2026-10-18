@@ -4,7 +4,9 @@ package backend
 
 import (
 	"context"
+	"fmt"
 	"slices"
+	"time"
 
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/logical"
@@ -136,4 +138,48 @@ func (b *backend) handleUnmanage(ctx context.Context, req *logical.Request, d *f
 		}
 	}
 	return nil, nil
+}
+
+func pathCertRenew(b *backend) *framework.Path {
+	return &framework.Path{
+		Pattern: "certs/" + framework.GenericNameRegex("name") + "/renew",
+		DisplayAttrs: &framework.DisplayAttributes{
+			OperationPrefix: operationPrefix,
+			OperationVerb:   "renew",
+			OperationSuffix: "certificate",
+		},
+		Fields: map[string]*framework.FieldSchema{"name": nameField()},
+		Operations: map[logical.Operation]framework.OperationHandler{
+			logical.UpdateOperation: &framework.PathOperation{Callback: b.handleRenew},
+		},
+		HelpSynopsis: "Renew a managed certificate now, ignoring its schedule and any backoff after failures.",
+	}
+}
+
+func (b *backend) handleRenew(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
+	name := d.Get("name").(string)
+	if err := b.requestRenewal(ctx, req.Storage, name); err != nil {
+		return logical.ErrorResponse(err.Error()), logical.ErrInvalidRequest
+	}
+	return &logical.Response{Data: map[string]any{"issuing": b.startIssuance(name)}}, nil
+}
+
+func (b *backend) requestRenewal(ctx context.Context, s logical.Storage, name string) error {
+	l := b.lock(name)
+	l.Lock()
+	defer l.Unlock()
+
+	m, err := loadMeta(ctx, s, name)
+	if err != nil {
+		return err
+	}
+	if m == nil || m.Managed == nil {
+		return fmt.Errorf("certificate %q is not managed", name)
+	}
+	if m.Issuance == nil {
+		m.Issuance = &issuanceState{}
+	}
+	m.Issuance.RenewRequested = true
+	m.Issuance.NextAttemptTime = time.Time{}
+	return putJSON(ctx, s, metaKey(name), m)
 }

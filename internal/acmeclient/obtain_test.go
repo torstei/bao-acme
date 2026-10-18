@@ -4,6 +4,7 @@ package acmeclient
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -62,7 +63,7 @@ func (e *issuanceEnv) obtain(t *testing.T, names []string, keyType string) ([]by
 	if err != nil {
 		t.Fatal(err)
 	}
-	chain, err := Obtain(context.Background(), e.account, p, names, key)
+	chain, err := Obtain(context.Background(), e.account, p, Order{Names: names, Key: key})
 	if err != nil {
 		return nil, err
 	}
@@ -127,5 +128,73 @@ func TestObtainNeedsARegisteredAccount(t *testing.T) {
 	e.account.AccountURL = ""
 	if _, err := e.obtain(t, []string{"example.test"}, "ecdsa-p256"); err == nil || !strings.Contains(err.Error(), "not registered") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func leafOf(t *testing.T, chain []byte) *x509.Certificate {
+	t.Helper()
+	certs, err := cert.ParseCertificates(string(chain))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return certs[0]
+}
+
+func TestRenewalInfoAndReplaces(t *testing.T) {
+	e := newIssuanceEnv(t)
+	ctx := context.Background()
+	chain, err := e.obtain(t, []string{"www.example.test"}, "ecdsa-p256")
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaf := leafOf(t, chain)
+
+	w, err := GetRenewalInfo(ctx, e.account, leaf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !w.Start.After(leaf.NotBefore) || !w.End.Before(leaf.NotAfter.Add(time.Second)) || !w.Start.Before(w.End) {
+		t.Errorf("window %v – %v for a certificate valid %v – %v", w.Start, w.End, leaf.NotBefore, leaf.NotAfter)
+	}
+	if w.RetryAfter <= 0 {
+		t.Errorf("RetryAfter = %v", w.RetryAfter)
+	}
+
+	renew := func() error {
+		p, err := e.provider(t).Build(dnsprovider.Settings{
+			"nameserver": e.dns.Addr, "tsig_key": tsigName, "tsig_secret": tsigSecret,
+		}, dnsprovider.Common{PropagationTimeout: 10 * time.Second, PollingInterval: 100 * time.Millisecond}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		key, _ := cert.GenerateKey("ecdsa-p256")
+		_, err = Obtain(ctx, e.account, p, Order{Names: []string{"www.example.test"}, Key: key, Replaces: leaf})
+		return err
+	}
+	if err := renew(); err != nil {
+		t.Fatalf("renewal replacing the certificate: %v", err)
+	}
+	// The CA answers alreadyReplaced, and lego orders again without it.
+	if err := renew(); err != nil {
+		t.Errorf("replacing an already replaced certificate: %v", err)
+	}
+}
+
+func TestRevokedCertificateIsDueAtOnce(t *testing.T) {
+	e := newIssuanceEnv(t)
+	ctx := context.Background()
+	chain, err := e.obtain(t, []string{"www.example.test"}, "ecdsa-p256")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Revoke(ctx, e.account, chain); err != nil {
+		t.Fatal(err)
+	}
+	w, err := GetRenewalInfo(ctx, e.account, leafOf(t, chain))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Start.After(time.Now().Add(time.Minute)) {
+		t.Errorf("window after revocation starts %v, want now", w.Start)
 	}
 }

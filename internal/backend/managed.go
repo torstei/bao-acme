@@ -4,6 +4,7 @@ package backend
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"math/rand/v2"
@@ -23,6 +24,14 @@ const (
 	firstBackoff       = time.Minute
 	maxBackoff         = 6 * time.Hour
 	maxErrorLength     = 2000
+
+	ariDefaultRecheck = 6 * time.Hour
+	ariMinRecheck     = time.Hour
+	ariMaxRecheck     = 24 * time.Hour
+	ariFailedRecheck  = time.Hour
+
+	scheduleARI     = "ari"
+	scheduleDefault = "default"
 )
 
 // managedSpec defines a certificate the engine obtains itself.
@@ -41,6 +50,25 @@ type issuanceState struct {
 	LastError       string    `json:"last_error,omitempty"`
 	Failures        int       `json:"failures,omitempty"`
 	NextAttemptTime time.Time `json:"next_attempt_time,omitzero"`
+	// RenewRequested is set by certs/<name>/renew until a certificate is
+	// stored.
+	RenewRequested bool `json:"renew_requested,omitempty"`
+}
+
+// renewalSchedule says when to renew one version, identified by its
+// fingerprint.
+type renewalSchedule struct {
+	ForSHA256 string    `json:"for_sha256"`
+	RenewAt   time.Time `json:"renew_at"`
+	// Source is "ari" when RenewAt lies in the CA's suggested window, or
+	// "default" for a third of the lifetime before expiry.
+	Source         string    `json:"source"`
+	WindowStart    time.Time `json:"window_start,omitzero"`
+	WindowEnd      time.Time `json:"window_end,omitzero"`
+	ExplanationURL string    `json:"explanation_url,omitempty"`
+	ARIError       string    `json:"ari_error,omitempty"`
+	CheckedTime    time.Time `json:"checked_time"`
+	NextCheckTime  time.Time `json:"next_check_time"`
 }
 
 func (s *managedSpec) source() string {
@@ -70,8 +98,77 @@ func needsIssuance(m *certMeta, current *certVersion, now time.Time) string {
 		return "the current certificate has expired"
 	case !m.Managed.matches(current):
 		return "the current certificate does not match the definition"
+	case m.Issuance != nil && m.Issuance.RenewRequested:
+		return "a renewal was requested"
+	case m.Renewal != nil && m.Renewal.ForSHA256 == current.Description.SHA256 && !now.Before(m.Renewal.RenewAt):
+		if m.Renewal.Source == scheduleARI {
+			return "renewal is due, in the CA's suggested window"
+		}
+		return "renewal is due, a third of the lifetime before expiry"
 	}
 	return ""
+}
+
+// scheduleStale reports whether the current version's renewal time needs
+// working out or checking with the CA again.
+func scheduleStale(m *certMeta, current *certVersion, now time.Time) bool {
+	if m == nil || m.Managed == nil || current == nil {
+		return false
+	}
+	r := m.Renewal
+	return r == nil || r.ForSHA256 != current.Description.SHA256 || !now.Before(r.NextCheckTime)
+}
+
+// defaultRenewAt is a third of the lifetime before expiry, less up to a
+// thirtieth of the lifetime of jitter, so certificates issued together do
+// not all renew together.
+func defaultRenewAt(d cert.Description) time.Time {
+	lifetime := d.NotAfter.Sub(d.NotBefore)
+	jitter := time.Duration(rand.Int64N(int64(lifetime/30) + 1))
+	return d.NotAfter.Add(-lifetime / 3).Add(-jitter)
+}
+
+// newSchedule works out when to renew current. A previous time in the same
+// window is kept, so that asking the CA again does not move it about.
+func newSchedule(prev *renewalSchedule, current *certVersion, w *acmeclient.RenewalWindow, ariErr error, now time.Time) *renewalSchedule {
+	sha := current.Description.SHA256
+	r := &renewalSchedule{ForSHA256: sha, CheckedTime: now}
+
+	if w == nil {
+		r.Source = scheduleDefault
+		r.RenewAt = defaultRenewAt(current.Description)
+		if prev != nil && prev.ForSHA256 == sha && prev.Source == scheduleDefault {
+			r.RenewAt = prev.RenewAt
+		}
+		r.NextCheckTime = now.Add(ariMaxRecheck)
+		switch {
+		case ariErr == nil, errors.Is(ariErr, acmeclient.ErrNoARI):
+		case errors.Is(ariErr, acmeclient.ErrNoRenewalInfoForCert):
+			r.ARIError = ariErr.Error()
+		default:
+			r.ARIError = ariErr.Error()
+			r.NextCheckTime = now.Add(ariFailedRecheck)
+		}
+		return r
+	}
+
+	r.Source = scheduleARI
+	r.WindowStart, r.WindowEnd, r.ExplanationURL = w.Start, w.End, w.ExplanationURL
+	switch {
+	case prev != nil && prev.ForSHA256 == sha && prev.Source == scheduleARI &&
+		!prev.RenewAt.Before(w.Start) && !prev.RenewAt.After(w.End):
+		r.RenewAt = prev.RenewAt
+	case w.End.After(w.Start):
+		r.RenewAt = w.Start.Add(time.Duration(rand.Int64N(int64(w.End.Sub(w.Start)))))
+	default:
+		r.RenewAt = w.Start
+	}
+	recheck := w.RetryAfter
+	if recheck <= 0 {
+		recheck = ariDefaultRecheck
+	}
+	r.NextCheckTime = now.Add(min(max(recheck, ariMinRecheck), ariMaxRecheck))
+	return r
 }
 
 func backoff(failures int) time.Duration {
@@ -125,14 +222,96 @@ func (i *issuer) stop() {
 	i.wg.Wait()
 }
 
-// startIssuance obtains a certificate for name in the background, if it
-// needs one.
+// startIssuance looks after name in the background: it brings the renewal
+// schedule up to date and obtains a certificate if one is due.
 func (b *backend) startIssuance(name string) bool {
 	return b.issuer.start(name, func(ctx context.Context) {
-		if err := b.issue(ctx, b.storage, name); err != nil {
+		if err := b.maintain(ctx, b.storage, name); err != nil {
 			b.Logger().Error("issuance failed", "certificate", name, "error", err)
 		}
 	})
+}
+
+func (b *backend) maintain(ctx context.Context, s logical.Storage, name string) error {
+	if err := b.refreshSchedule(ctx, s, name); err != nil {
+		b.Logger().Warn("could not update the renewal schedule", "certificate", name, "error", err)
+	}
+	issued, err := b.issue(ctx, s, name)
+	if err != nil || !issued {
+		return err
+	}
+	return b.refreshSchedule(ctx, s, name)
+}
+
+// refreshSchedule asks the CA when to renew the current version, if the
+// schedule is missing or due for a check, and stores the answer.
+func (b *backend) refreshSchedule(ctx context.Context, s logical.Storage, name string) error {
+	m, current, err := b.loadCurrent(ctx, s, name)
+	if err != nil || !scheduleStale(m, current, b.now()) {
+		return err
+	}
+	leaf, err := current.leaf()
+	if err != nil {
+		return err
+	}
+
+	var window *acmeclient.RenewalWindow
+	var ariErr error
+	if account, err := b.ariAccount(ctx, s, m.Managed.Account); err != nil {
+		ariErr = err
+	} else {
+		window, ariErr = acmeclient.GetRenewalInfo(ctx, account, leaf)
+	}
+
+	l := b.lock(name)
+	l.Lock()
+	defer l.Unlock()
+	m, latest, err := loadCurrentLocked(ctx, s, name)
+	if err != nil || m == nil || m.Managed == nil || latest == nil || latest.Description.SHA256 != current.Description.SHA256 {
+		return err
+	}
+	m.Renewal = newSchedule(m.Renewal, latest, window, ariErr, b.now().UTC())
+	return putJSON(ctx, s, metaKey(name), m)
+}
+
+// ariAccount returns the account to ask the CA through; renewal information
+// needs no registration.
+func (b *backend) ariAccount(ctx context.Context, s logical.Storage, name string) (*acmeclient.Account, error) {
+	a, err := loadAccount(ctx, s, name)
+	if err != nil {
+		return nil, err
+	}
+	if a == nil {
+		return nil, fmt.Errorf("no account named %q", name)
+	}
+	client, err := a.client()
+	if err != nil {
+		return nil, err
+	}
+	n, err := loadNetwork(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	if client.Network, err = n.network(); err != nil {
+		return nil, err
+	}
+	return client, nil
+}
+
+func (b *backend) loadCurrent(ctx context.Context, s logical.Storage, name string) (*certMeta, *certVersion, error) {
+	l := b.lock(name)
+	l.RLock()
+	defer l.RUnlock()
+	return loadCurrentLocked(ctx, s, name)
+}
+
+func loadCurrentLocked(ctx context.Context, s logical.Storage, name string) (*certMeta, *certVersion, error) {
+	m, err := loadMeta(ctx, s, name)
+	if err != nil || m == nil {
+		return nil, nil, err
+	}
+	current, err := loadVersion(ctx, s, name, m.CurrentVersion)
+	return m, current, err
 }
 
 // periodic starts the issuances that are due. It runs on the active node.
@@ -151,58 +330,66 @@ func (b *backend) periodic(ctx context.Context, req *logical.Request) error {
 		if err != nil {
 			continue
 		}
-		if needsIssuance(m, current, now) != "" {
+		if needsIssuance(m, current, now) != "" || scheduleStale(m, current, now) {
 			b.startIssuance(name)
 		}
 	}
 	return nil
 }
 
-// issue obtains and stores a certificate for name if it needs one. Failures
-// are recorded in the certificate's issuance state with a backoff.
-func (b *backend) issue(ctx context.Context, s logical.Storage, name string) error {
-	spec, reason, err := b.claimIssuance(ctx, s, name)
-	if err != nil || spec == nil {
-		return err
+// issue obtains and stores a certificate for name if it needs one, and
+// reports whether it stored one. Failures are recorded in the
+// certificate's issuance state with a backoff.
+func (b *backend) issue(ctx context.Context, s logical.Storage, name string) (bool, error) {
+	claim, err := b.claimIssuance(ctx, s, name)
+	if err != nil || claim == nil {
+		return false, err
 	}
-	b.Logger().Info("obtaining a certificate", "certificate", name, "reason", reason, "names", spec.Names)
+	b.Logger().Info("obtaining a certificate", "certificate", name, "reason", claim.reason, "names", claim.spec.Names)
 
-	bundle, issueErr := b.obtain(ctx, s, spec)
-	return b.recordIssuance(ctx, s, name, spec, bundle, issueErr)
+	bundle, issueErr := b.obtain(ctx, s, &claim.spec, claim.replaces)
+	return b.recordIssuance(ctx, s, name, &claim.spec, bundle, issueErr)
 }
 
-// claimIssuance records the start of an attempt and returns the definition,
-// or nil if nothing needs doing.
-func (b *backend) claimIssuance(ctx context.Context, s logical.Storage, name string) (*managedSpec, string, error) {
+type issuanceClaim struct {
+	spec     managedSpec
+	reason   string
+	replaces *x509.Certificate
+}
+
+// claimIssuance records the start of an attempt and returns what to do, or
+// nil if nothing needs doing.
+func (b *backend) claimIssuance(ctx context.Context, s logical.Storage, name string) (*issuanceClaim, error) {
 	l := b.lock(name)
 	l.Lock()
 	defer l.Unlock()
 
-	m, err := loadMeta(ctx, s, name)
+	m, current, err := loadCurrentLocked(ctx, s, name)
 	if err != nil || m == nil {
-		return nil, "", err
-	}
-	current, err := loadVersion(ctx, s, name, m.CurrentVersion)
-	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	now := b.now().UTC()
 	reason := needsIssuance(m, current, now)
 	if reason == "" {
-		return nil, "", nil
+		return nil, nil
 	}
 	if m.Issuance == nil {
 		m.Issuance = &issuanceState{}
 	}
 	m.Issuance.LastAttemptTime = now
 	if err := putJSON(ctx, s, metaKey(name), m); err != nil {
-		return nil, "", err
+		return nil, err
 	}
-	spec := *m.Managed
-	return &spec, reason, nil
+
+	claim := &issuanceClaim{spec: *m.Managed, reason: reason}
+	// The CA links a renewal to its predecessor only within one account.
+	if current != nil && current.Source == m.Managed.source() && !current.destroyed() {
+		claim.replaces, _ = current.leaf()
+	}
+	return claim, nil
 }
 
-func (b *backend) obtain(ctx context.Context, s logical.Storage, spec *managedSpec) (*cert.Bundle, error) {
+func (b *backend) obtain(ctx context.Context, s logical.Storage, spec *managedSpec, replaces *x509.Certificate) (*cert.Bundle, error) {
 	n, err := loadNetwork(ctx, s)
 	if err != nil {
 		return nil, err
@@ -231,7 +418,7 @@ func (b *backend) obtain(ctx context.Context, s logical.Storage, spec *managedSp
 	if err != nil {
 		return nil, err
 	}
-	chain, err := acmeclient.Obtain(ctx, account, provider, spec.Names, key)
+	chain, err := acmeclient.Obtain(ctx, account, provider, acmeclient.Order{Names: spec.Names, Key: key, Replaces: replaces})
 	if err != nil {
 		return nil, err
 	}
@@ -295,21 +482,21 @@ func (b *backend) registeredAccount(ctx context.Context, s logical.Storage, name
 	return client, nil
 }
 
-func (b *backend) recordIssuance(ctx context.Context, s logical.Storage, name string, spec *managedSpec, bundle *cert.Bundle, issueErr error) error {
+func (b *backend) recordIssuance(ctx context.Context, s logical.Storage, name string, spec *managedSpec, bundle *cert.Bundle, issueErr error) (bool, error) {
 	l := b.lock(name)
 	l.Lock()
 	defer l.Unlock()
 
 	m, err := loadMeta(ctx, s, name)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if m == nil || m.Managed == nil || !m.Managed.DefinedTime.Equal(spec.DefinedTime) {
 		if issueErr != nil {
-			return issueErr
+			return false, issueErr
 		}
 		b.Logger().Info("discarding a certificate whose definition changed or was removed while it was obtained", "certificate", name)
-		return nil
+		return false, nil
 	}
 	if m.Issuance == nil {
 		m.Issuance = &issuanceState{}
@@ -318,7 +505,7 @@ func (b *backend) recordIssuance(ctx context.Context, s logical.Storage, name st
 
 	if issueErr != nil {
 		if errors.Is(issueErr, context.Canceled) {
-			return issueErr
+			return false, issueErr
 		}
 		msg := issueErr.Error()
 		if len(msg) > maxErrorLength {
@@ -328,19 +515,19 @@ func (b *backend) recordIssuance(ctx context.Context, s logical.Storage, name st
 		m.Issuance.LastError = msg
 		m.Issuance.NextAttemptTime = now.Add(backoff(m.Issuance.Failures))
 		if err := putJSON(ctx, s, metaKey(name), m); err != nil {
-			return err
+			return false, err
 		}
-		return issueErr
+		return false, issueErr
 	}
 
 	v, err := writeVersion(ctx, s, name, m, bundle, spec.source(), nil, now)
 	if err != nil {
-		return err
+		return false, err
 	}
 	m.Issuance = &issuanceState{LastAttemptTime: m.Issuance.LastAttemptTime, LastSuccessTime: now}
 	if err := putJSON(ctx, s, metaKey(name), m); err != nil {
-		return err
+		return false, err
 	}
 	b.Logger().Info("stored a new certificate", "certificate", name, "version", v.Version, "not_after", v.Description.NotAfter)
-	return nil
+	return true, nil
 }
