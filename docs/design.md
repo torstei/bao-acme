@@ -96,6 +96,9 @@ digest.
 Paths are relative to the mount. "Write-only" fields are accepted on write and never returned:
 reads show only whether they are set.
 
+*v0.4.0 moves every path under an account (§4.5).* §4.1 and §4.2 describe what each path does,
+and still apply; §4.5 says where the paths are now.
+
 ### 4.1. Configuration (operators)
 
 | Path | Holds |
@@ -309,6 +312,73 @@ Extracted by the engine from the certificate, never supplied by the writer:
 A read-only `data/<name>` path answering in KV version 2's shape (`data.fullchain`, `data.privkey`
 and so on) would let consumers written against a KV layout switch mounts without changing. Cheap to add, and worth it only if such consumers exist.
 
+### 4.5. Everything under an account (v0.4.0)
+
+4.5.1. **Why.** OpenBao authorizes by path. Up to v0.3.0, a definition at `certs/<name>` chose its
+`account` and `dns_provider` in its fields, so whoever could write any certificate path could
+obtain a certificate, key included, for every name any configured DNS provider could prove. From
+v0.4.0 the ACME account is the unit of authority, and every operation names it in its path. A
+policy on `accounts/<name>/` is then the whole authorization for one team, or one purpose.
+
+4.5.2. The account is also a boundary at the CA. With CAA `accounturi` (§7.3), a zone can be
+pinned to one account, and the CA refuses every other account for it, whatever DNS records it can
+publish. The engine's boundary and the CA's are the same.
+
+4.5.3. Paths, relative to the mount:
+
+| Path | Method | What |
+|---|---|---|
+| `accounts/` | list | Account names. |
+| `accounts/<account>` | write, read, delete | The account: as `config/accounts/<name>` was (§4.1). `directory_url` is needed only to register and issue, so an account may hold just imported certificates. Delete is refused while the account holds certificates or DNS providers. |
+| `accounts/<account>/register` | write | As before. |
+| `accounts/<account>/dns/` | list | The account's DNS providers. |
+| `accounts/<account>/dns/<provider>` | write, read, delete | A DNS provider, as `config/dns/<name>` was. Usable only by this account's certificates. Delete is refused while a certificate uses it, or an in-flight entry still needs it to remove records. |
+| `accounts/<account>/certs/` | list | The account's certificates, with `covers` as before. |
+| `accounts/<account>/certs/<cert>` | write, read, delete | As `certs/<name>` was. A definition takes `names`, `dns_provider` (one of this account's), `key_type` and `reuse_key`; no `account`, since the path gives it. |
+| `accounts/<account>/certs/<cert>/…` | | `import`, `info`, `status`, `versions/<n>`, `rollback`, `destroy`, `renew`, `unmanage`, as before. |
+| `accounts/<account>/status` | read | The account's certificates, as the mount's `status`. |
+| `config/network` | write, read, delete | Unchanged: mount-wide, for the operator. |
+| `status` | read | Unchanged: every account's certificates. |
+
+4.5.4. Certificate and DNS provider names are per account, so two teams can each have a
+certificate called `www`. A DNS key that two accounts both need is entered in both. That is
+duplication, but it makes explicit who can use which credentials.
+
+4.5.5. `config/accounts/`, `config/dns/` and `certs/` are removed. Nothing has been deployed
+against them, so there is no transition period.
+
+4.5.6. Example policies:
+
+```hcl
+# a team: everything in its own account
+path "acme/accounts/team-a"   { capabilities = ["read"] }
+path "acme/accounts/team-a/*" { capabilities = ["create", "read", "update", "delete", "list"] }
+
+# a consumer: one certificate, key included
+path "acme/accounts/team-a/certs/www" { capabilities = ["read"] }
+
+# monitoring: every state, no keys
+path "acme/status" { capabilities = ["read"] }
+
+# the operator: the network settings and creating accounts
+path "acme/config/network" { capabilities = ["create", "read", "update", "delete"] }
+path "acme/accounts/+"     { capabilities = ["create", "read", "update", "delete"] }
+```
+
+A team that may also create and delete its own account is given `acme/accounts/team-a` with those
+capabilities. One that should not see the account's settings gets only `acme/accounts/team-a/*`.
+
+4.5.7. When one DNS key covers more names than an account should have, for example one Domeneshop
+login holding every team's zones, the credentials do not limit the account. An optional
+`allowed_domains` on the account, set by the operator and checked when a definition is written,
+would. It is left for when someone needs it. Until then, give each account credentials that cover
+only its own names, or CAA-pin the other names to their accounts.
+
+4.5.8. Separate mounts per team remain possible, for anyone who wants each team's accounts,
+network settings and monitoring fully apart.
+
+4.5.9. Storage moves to format 2 (§5.7), and a mount with format 1 data is migrated when it starts.
+
 ## 5. Storage
 
 5.1. **One transaction per version.** Writing a version means writing the certificate, key,
@@ -432,6 +502,32 @@ A new kind of entry adds its file when it is introduced. One test loads them and
 them through the API. Another checks that a fresh write still produces every field they have, so
 a renamed JSON tag fails CI. A new storage format adds a `storage-v2/` beside it, and `storage-v1/`
 stays.
+
+5.7. **Storage format 2 (v0.4.0).** Format 1 keeps accounts, DNS providers and certificates side
+by side. Format 2 puts everything an account owns under it, so the storage mirrors the paths of
+§4.5:
+
+| Format 1 | Format 2 |
+|---|---|
+| `config/accounts/<account>` | `accounts/<account>/config` |
+| `config/dns/<provider>` | `accounts/<account>/dns/<provider>` |
+| `certs/<cert>/meta`, `…/versions/<n>`, `…/inflight` | `accounts/<account>/certs/<cert>/meta`, `…/versions/<n>`, `…/inflight` |
+| `config/network` | `config/network` |
+
+5.7.1. A `storage/version` entry holds `2`; without one, the data is format 1. On mounting, on the
+active node, the engine migrates format 1 data and then writes the version. Each key is copied
+before its old one is deleted, and the version is written last, so a migration cut short is simply
+run again.
+
+5.7.2. The migration places each managed certificate under the account its definition names.
+Imported certificates, which had no account, go under an account called `imported`, created with
+no CA settings. Each DNS provider is copied into every account whose certificates use it, and an
+unused one into `imported`, so no credentials are lost. An account with no certificates stays an
+account.
+
+5.7.3. The format 1 fixtures stay in `testdata/storage-v1/`. A test migrates them and reads the
+result through the new paths. `testdata/storage-v2/` freezes the new format, under the rules of
+§5.6.4.
 
 ## 6. Issuing and renewing (managed certificates)
 
