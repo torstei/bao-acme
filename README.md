@@ -9,7 +9,7 @@ The goal is for the engine to obtain and renew certificates itself, over ACME wi
 part is not built yet. Today it stores certificates that something else issued, such as certbot.
 See [docs/design.md](docs/design.md) for the design and the plan.
 
-> Status: early. Imported certificates work (v0.1.0). ACME accounts are in progress; issuance comes next.
+> Status: early. Imported certificates work (v0.1.0). ACME accounts and DNS providers are configured; issuance comes next.
 
 ## Build and try it
 
@@ -78,6 +78,18 @@ ACME accounts (issuing over ACME is not built yet):
 ```sh
 bao write certificates/config/accounts/le directory_url=letsencrypt email=ops@example.com terms_of_service_agreed=true
 bao write certificates/config/accounts/le/register
+```
+
+DNS providers, for DNS-01 (used once issuance exists):
+
+| Path | Method | |
+|---|---|---|
+| `config/dns/<name>` | write | `provider` (`domeneshop`, `cloudflare` or `dnsupdate` for RFC 2136), then that provider's settings; credentials are write-only. `bao path-help certificates/config/dns/x` lists them. |
+| `config/dns/<name>` | read, delete | Settings, `<secret>_set` flags, and `egress`: where the provider connects. |
+| `config/dns/` | list | Names. |
+
+```sh
+bao write certificates/config/dns/domeneshop provider=domeneshop api_token=… api_secret=…
 ```
 
 Outgoing traffic:

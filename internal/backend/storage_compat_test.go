@@ -178,6 +178,49 @@ func TestWritesStorageV1NetworkFields(t *testing.T) {
 	missingFields(t, "config/network", readFixture(t, "config/network"), got)
 }
 
+func TestReadsStorageV1DNS(t *testing.T) {
+	h := newHarness(t)
+	loadFixture(t, h, storageV1)
+
+	read := h.ok(logical.ReadOperation, "config/dns/example", nil)
+	for field, want := range map[string]any{
+		"provider":            "domeneshop",
+		"api_token_set":       true,
+		"api_secret_set":      true,
+		"ttl":                 300,
+		"propagation_timeout": 600,
+		"polling_interval":    30,
+	} {
+		if got := read.Data[field]; got != want {
+			t.Errorf("%s = %v, want %v", field, got, want)
+		}
+	}
+	e, err := loadDNS(context.Background(), h.storage, "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.provider(&networkEntry{}); err != nil {
+		t.Errorf("stored provider does not build: %v", err)
+	}
+}
+
+func TestWritesStorageV1DNSFields(t *testing.T) {
+	h := newHarness(t)
+	h.ok(logical.CreateOperation, "config/dns/example", map[string]any{
+		"provider": "domeneshop", "api_token": "tok-123", "api_secret": "sec-456",
+		"ttl": 300, "propagation_timeout": "10m", "polling_interval": "30s",
+	})
+	entry, err := h.storage.Get(context.Background(), "config/dns/example")
+	if err != nil || entry == nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(entry.Value, &got); err != nil {
+		t.Fatal(err)
+	}
+	missingFields(t, "config/dns/example", readFixture(t, "config/dns/example"), got)
+}
+
 func TestWritesStorageV1Fields(t *testing.T) {
 	h := newHarness(t)
 	h.imp("example.com", testcerts.New(t, testcerts.Options{}))
