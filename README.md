@@ -50,7 +50,8 @@ Or build it yourself with `make build`, which writes `bin/bao-acme`.
 
 Push an annotated tag `vX.Y.Z` on a commit that has passed CI on `main`. The release workflow
 refuses a commit without passing `checks` and `integration` runs. The tag's annotation leads the
-release notes.
+release notes. Releases from v0.1.1 on are immutable: once published, neither the binaries nor the
+tag can change, so a fix is always a new version.
 
 ## API
 
