@@ -341,6 +341,23 @@ func TestIntegration(t *testing.T) {
 		}
 	})
 
+	t.Run("DNS credentials stay inside", func(t *testing.T) {
+		if _, err := c.client.Logical().Write(mount+"/config/dns/domeneshop", map[string]any{
+			"provider":   "domeneshop",
+			"api_token":  "dns-tok3n",
+			"api_secret": "dns-s3cret",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		got := read(t, c.client, "config/dns/domeneshop").Data
+		if got["api_token_set"] != true || got["api_secret_set"] != true {
+			t.Errorf("dns = %v", got)
+		}
+		if s := fmt.Sprint(got); strings.Contains(s, "dns-tok3n") || strings.Contains(s, "dns-s3cret") {
+			t.Errorf("credentials returned: %s", s)
+		}
+	})
+
 	t.Run("data survives a plugin reload", func(t *testing.T) {
 		if _, err := c.client.Sys().ReloadPluginWithContext(ctx, &api.ReloadPluginInput{Plugin: pluginName}); err != nil {
 			t.Fatalf("reload: %v", err)
@@ -369,6 +386,9 @@ func TestIntegration(t *testing.T) {
 		}
 		if strings.Contains(logs, "proxy-s3cret") {
 			t.Error("audit log contains the proxy password in clear text")
+		}
+		if strings.Contains(logs, "dns-s3cret") {
+			t.Error("audit log contains a DNS credential in clear text")
 		}
 	})
 }

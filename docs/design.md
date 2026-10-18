@@ -142,6 +142,35 @@ the response warns that its key is gone.
 environment variables. Its log goes to OpenBao's log, at debug level, because it logs every request
 together with the contact address.
 
+*Phase 2, DNS providers:*
+
+4.1.8. `config/dns/<name>` takes `provider` plus that provider's own settings as top-level fields,
+and `ttl`, `propagation_timeout` and `polling_interval`. `<name>` is the operator's label. The
+provider cannot change once created. A field that the provider does not take is refused, and an
+empty value removes a setting.
+
+4.1.9. Reads show non-secret settings, `<field>_set` for secret ones, and `egress`: where the
+provider connects, for allow-listing. `bao path-help` lists every provider's fields and egress.
+
+4.1.10. The first providers are:
+
+| Provider | Settings | Egress |
+|---|---|---|
+| `domeneshop` | `api_token`, `api_secret` | HTTPS to `api.domeneshop.no` |
+| `cloudflare` | `api_token` (and optionally `zone_api_token`), or `email` and `api_key` | HTTPS to `api.cloudflare.com` |
+| `dnsupdate` (RFC 2136) | `nameserver`, `tsig_key`, `tsig_secret`, `tsig_algorithm` (default `hmac-sha256`), `zones` | DNS UPDATE on port 53 to `nameserver`, not through the proxy |
+
+4.1.11. Each provider is built from lego's typed config, never from `NewDNSProvider()`, which reads
+environment variables. Every field is also filled in by the engine, because lego's
+`NewDefaultConfig()` reads environment variables for its defaults too. HTTP providers get the
+engine's HTTP client, so they use the proxy of §7.1.1. `dnsupdate` takes its TSIG key inline: no
+key files and no GSS-TSIG. Its default algorithm is HMAC-SHA256, not lego's HMAC-SHA1.
+
+4.1.12. Route 53 is left out for now. Without explicit keys, lego falls back to the AWS default
+credential chain (environment variables, `~/.aws`, the EC2 instance metadata service), which is
+implicit credentials and implicit egress. It also adds several megabytes of AWS SDK. It can be
+added with static credentials and the engine's HTTP client only, when someone needs it.
+
 ### 4.2. Certificates
 
 | Path | Method | What |
@@ -259,6 +288,7 @@ wrote, both on upgrade and when restoring an old Raft snapshot.
 | `certs/<name>/versions/<n>` | One version: certificate, chain, key and description, in one entry. |
 | `config/accounts/<name>` | An ACME account: its settings, its key (PKCS #8 PEM), and, once registered, a `registration` object with the account URL, status, contact and terms of service URL. |
 | `config/network` | The proxy URL, credentials included, `proxy_ca_bundle`, and the DNS settings of §7.1.7. Absent means direct connections and the defaults. |
+| `config/dns/<name>` | A DNS provider: `provider`, a `settings` object with its fields, credentials included, and the common timing settings. |
 
 5.6.2. A `meta` entry:
 
