@@ -326,6 +326,21 @@ func TestIntegration(t *testing.T) {
 		}
 	})
 
+	t.Run("proxy credentials stay inside", func(t *testing.T) {
+		written, err := c.client.Logical().Write(mount+"/config/network", map[string]any{
+			"proxy_url": "http://bao:proxy-s3cret@proxy.example:3128",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		readBack := read(t, c.client, "config/network")
+		for _, s := range []*api.Secret{written, readBack} {
+			if s.Data["proxy_url"] != "http://proxy.example:3128" || s.Data["proxy_credentials_set"] != true {
+				t.Errorf("network = %v", s.Data)
+			}
+		}
+	})
+
 	t.Run("data survives a plugin reload", func(t *testing.T) {
 		if _, err := c.client.Sys().ReloadPluginWithContext(ctx, &api.ReloadPluginInput{Plugin: pluginName}); err != nil {
 			t.Fatalf("reload: %v", err)
@@ -351,6 +366,9 @@ func TestIntegration(t *testing.T) {
 		}
 		if strings.Contains(logs, "PRIVATE KEY") {
 			t.Error("audit log contains a private key in clear text")
+		}
+		if strings.Contains(logs, "proxy-s3cret") {
+			t.Error("audit log contains the proxy password in clear text")
 		}
 	})
 }

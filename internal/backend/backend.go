@@ -60,6 +60,7 @@ func New() *backend {
 			pathAccountsList(b),
 			pathAccountRegister(b),
 			pathAccount(b),
+			pathNetwork(b),
 		},
 		RunningVersion: Version,
 	}
@@ -78,5 +79,6 @@ Write a certificate to certs/<name>/import. Read it, key included, from
 certs/<name>, and read its description alone from certs/<name>/info.
 
 Configure ACME accounts at config/accounts/<name> and register them with
-config/accounts/<name>/register.
+config/accounts/<name>/register. config/network sets an optional forward
+proxy for all outgoing HTTP, and the DNS settings for DNS-01.
 `
