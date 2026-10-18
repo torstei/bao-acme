@@ -205,6 +205,73 @@ falls outside `max_versions`. Rolling back to a destroyed or expired version is 
 importer on a timer that still holds the newer certificate writes it again on its next run and
 so undoes the rollback, so stop the importer before rolling back.
 
+5.6. **Storage compatibility.** OpenBao owns everything below the plugin: the physical backend,
+the barrier's encryption, and the mount's storage view (`logical/<mount-uuid>/`). The plugin sees
+only `Get`, `Put`, `List` and `Delete` of key → bytes. The key layout and the JSON in those
+entries are the engine's own format. Only the engine reads them; the API's responses are built
+from them, but are a separate contract (§4). Every release must read what every earlier release
+wrote, both on upgrade and when restoring an old Raft snapshot.
+
+5.6.1. Keys, relative to the mount:
+
+| Key | Holds |
+|---|---|
+| `certs/<name>/meta` | Which version is current, the latest version number, `max_versions`. |
+| `certs/<name>/versions/<n>` | One version: certificate, chain, key and description, in one entry. |
+
+5.6.2. A `meta` entry:
+
+```json
+{ "current_version": 2, "latest_version": 2, "max_versions": 3 }
+```
+
+5.6.3. A `versions/<n>` entry, about 3 KB for ECDSA P-256, with the PEM shortened here:
+
+```json
+{
+  "version": 2,
+  "created_time": "2026-10-18T13:15:44.106773629Z",
+  "source": "import",
+  "imported_by": { "entity_id": "…", "display_name": "approle-importer" },
+  "description": {
+    "names": ["*.example.com", "example.com"],
+    "common_name": "example.com",
+    "not_before": "2026-10-18T12:15:44Z",
+    "not_after": "2027-01-16T12:15:44Z",
+    "serial": "9dddfee823ec492d",
+    "issuer": "Test CA T1",
+    "sha256": "0ea103f6…",
+    "spki_sha256": "38d228ee…",
+    "key_type": "ecdsa-p256"
+  },
+  "fullchain": "-----BEGIN CERTIFICATE-----\n…",
+  "certificate": "-----BEGIN CERTIFICATE-----\n…",
+  "chain": "-----BEGIN CERTIFICATE-----\n…",
+  "privkey": "-----BEGIN PRIVATE KEY-----\n…"
+}
+```
+
+A destroyed version has no `privkey` and gains `"destroyed_time"`. `imported_by` is absent when the
+request carried no identity. The description is kept as it was extracted at write time. A later
+release that describes certificates differently does not rewrite old versions.
+
+5.6.4. Rules for changing the format:
+
+5.6.4.1. Adding a field needs nothing. Older releases ignore fields they do not know, and newer
+releases read a missing field as its zero value. That zero value must therefore mean what the
+older release did.
+
+5.6.4.2. Renaming or moving a field or key needs a migration: either converting entries when they
+are read, or a one-off upgrade at mount time (`InitializeFunc`) that records a storage version.
+With no storage-version entry, the format is the one described here.
+
+5.6.4.3. Downgrading loses data. An older release that rewrites an entry, for example on
+`destroy`, drops the fields it does not know. Release notes must say so for the first release
+that adds a field whose loss matters.
+
+5.6.4.4. These rules apply from the first release, `v0.1.0`, regardless of semantic versioning's
+pre-1.0 leeway.
+
 ## 6. Issuing and renewing (managed certificates)
 
 6.1. **On the active node only.** The plugin's `PeriodicFunc` (`sdk/framework/backend.go`) runs on
