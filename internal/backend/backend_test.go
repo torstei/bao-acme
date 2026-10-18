@@ -28,6 +28,7 @@ func newHarness(t *testing.T) *harness {
 	if err := b.Setup(context.Background(), conf); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(b.issuer.stop)
 	return &harness{t: t, b: b, storage: conf.StorageView}
 }
 

@@ -9,7 +9,7 @@ The goal is for the engine to obtain and renew certificates itself, over ACME wi
 part is not built yet. Today it stores certificates that something else issued, such as certbot.
 See [docs/design.md](docs/design.md) for the design and the plan.
 
-> Status: early. Imported certificates work (v0.1.0). ACME accounts and DNS providers are configured; issuance comes next.
+> Status: early. Imported certificates work (v0.1.0). The engine obtains certificates over ACME with DNS-01; renewal comes next.
 
 ## Build and try it
 
@@ -66,7 +66,24 @@ tag can change, so a fix is always a new version.
 | `certs/<name>/destroy` | write | `versions`: destroy their private keys, keep their descriptions. |
 | `certs/` | list | Names. With `?covers=<host>`, only those whose names cover the host. |
 
-ACME accounts (issuing over ACME is not built yet):
+Managed certificates, obtained by the engine over ACME with DNS-01 (renewal is not built yet):
+
+| Path | Method | |
+|---|---|---|
+| `certs/<name>` | write | `names`, `account`, `dns_provider`, optionally `key_type` (default `ecdsa-p256`). Returns at once; the certificate is obtained in the background. An imported certificate under the same name keeps its versions. |
+| `certs/<name>/info` | read | Adds `definition` and `issuance`: why one is needed, last attempt and success, last error, failures, next attempt. |
+| `certs/<name>/unmanage` | write | Back to import-only, keeping the versions. |
+
+A complete setup with Domeneshop:
+
+```sh
+bao write certificates/config/accounts/le directory_url=letsencrypt email=ops@example.com terms_of_service_agreed=true
+bao write certificates/config/dns/domeneshop provider=domeneshop api_token=… api_secret=…
+bao write certificates/certs/example.com names=example.com,*.example.com account=le dns_provider=domeneshop
+bao read  certificates/certs/example.com/info
+```
+
+ACME accounts:
 
 | Path | Method | |
 |---|---|---|

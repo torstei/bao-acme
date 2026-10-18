@@ -47,7 +47,7 @@ type DNSSettings struct {
 	TCPOnly          bool
 }
 
-const resolvConf = "/etc/resolv.conf"
+var resolvConf = "/etc/resolv.conf"
 
 // ParseProxyURL accepts an http or https forward proxy, optionally with
 // credentials.

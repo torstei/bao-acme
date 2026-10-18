@@ -1,0 +1,21 @@
+{
+  "current_version": 0,
+  "latest_version": 0,
+  "max_versions": 3,
+  "managed": {
+    "names": [
+      "failing.example.test"
+    ],
+    "key_type": "ecdsa-p256",
+    "account": "le",
+    "dns_provider": "bind",
+    "defined_time": "2026-10-18T14:52:46.737272356Z"
+  },
+  "issuance": {
+    "last_attempt_time": "2026-10-18T14:52:46.737336028Z",
+    "last_error": "obtaining a certificate: resolver: one or more domains had a problem: [failing.example.test: dns01: error presenting token (failing.example.test): dnsupdate: failed to insert: DNS update failed: server 127.0.0.1:40313 replied REFUSED for INSERT example.test.]",
+    "failures": 1,
+    "next_attempt_time": "2026-10-18T14:53:41.174394943Z"
+  }
+}
+

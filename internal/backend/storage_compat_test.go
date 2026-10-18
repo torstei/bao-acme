@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/openbao/openbao/sdk/v2/logical"
 
@@ -219,6 +220,51 @@ func TestWritesStorageV1DNSFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	missingFields(t, "config/dns/example", readFixture(t, "config/dns/example"), got)
+}
+
+func TestReadsStorageV1Managed(t *testing.T) {
+	h := newHarness(t)
+	loadFixture(t, h, storageV1)
+
+	info := h.ok(logical.ReadOperation, "certs/managed/info", nil)
+	def := info.Data["definition"].(map[string]any)
+	if info.Data["managed"] != true || info.Data["source"] != "acme:le" || def["account"] != "le" || def["dns_provider"] != "bind" {
+		t.Errorf("managed info = %v", info.Data)
+	}
+	if issuance := info.Data["issuance"].(map[string]any); issuance["last_success_time"].(time.Time).IsZero() || issuance["needed"] != "" {
+		t.Errorf("managed issuance = %v", issuance)
+	}
+
+	failing := h.ok(logical.ReadOperation, "certs/failing/info", nil)
+	issuance := failing.Data["issuance"].(map[string]any)
+	if issuance["failures"] != 1 || issuance["last_error"] == "" || issuance["needed"] != "no certificate yet" || issuance["next_attempt_time"].(time.Time).IsZero() {
+		t.Errorf("failing issuance = %v", issuance)
+	}
+}
+
+func freshMeta(t *testing.T, e *managedEnv, name string) map[string]any {
+	t.Helper()
+	entry, err := e.storage.Get(context.Background(), metaKey(name))
+	if err != nil || entry == nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(entry.Value, &got); err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
+func TestWritesStorageV1ManagedFields(t *testing.T) {
+	e := newManagedEnv(t)
+	e.define("managed", "managed.example.test")
+	e.waitFor("managed", "the certificate", hasVersion(1))
+	missingFields(t, "certs/managed/meta", readFixture(t, "certs/managed/meta"), freshMeta(t, e, "managed"))
+
+	e.ok(logical.UpdateOperation, "config/dns/bind", map[string]any{"tsig_secret": "d3Jvbmd3cm9uZ3dyb25nd3Jvbmd3cm9uZw=="})
+	e.define("failing", "failing.example.test")
+	e.waitFor("failing", "a failure", func(m *certMeta) bool { return m.Issuance != nil && m.Issuance.Failures == 1 })
+	missingFields(t, "certs/failing/meta", readFixture(t, "certs/failing/meta"), freshMeta(t, e, "failing"))
 }
 
 func TestWritesStorageV1Fields(t *testing.T) {

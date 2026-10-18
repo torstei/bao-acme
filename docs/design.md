@@ -194,6 +194,38 @@ so a wildcard is named, for example, `wildcard.example.com`. The `covers` filter
 parameter on `LIST`. With no match, the list is empty and the HTTP status is 404, as for any
 empty list in OpenBao.
 
+*Phase 3, managed certificates:*
+
+4.2.1. Writing `names`, `account` and `dns_provider` (and optionally `key_type`, default
+`ecdsa-p256`) to `certs/<name>` defines a managed certificate. Names are lowercased, sorted and
+deduplicated. A wildcard is allowed only as the whole leftmost label, IP addresses are refused
+(DNS-01 cannot validate them), and international names must be in their A-label (`xn--`) form. The
+account and the DNS provider must exist. The write returns at once, with `issuing: true` when it
+started an issuance, because an order with DNS propagation can outlast OpenBao's request timeout.
+
+4.2.2. A certificate needs issuing when its current version is missing, destroyed, expired, or
+does not match the definition (names and key type). That makes an imported certificate with the
+same names and key type count as satisfying the definition: the engine leaves it alone until
+renewal (phase 4). One with other names is replaced, and its versions are kept, so the imported
+version is served until the first issuance succeeds.
+
+4.2.3. Changing the definition (names, key type, account or DNS provider) clears the backoff and
+issues again. Writing the same definition again changes nothing.
+
+4.2.4. `info` adds `managed`, `definition`, and `issuance`: `needed` (why an issuance is due, or
+empty), `last_attempt_time`, `last_success_time`, `last_error`, `failures` and
+`next_attempt_time`. Before the first certificate exists, `info` shows only these, and reading
+`certs/<name>` returns not found.
+
+4.2.5. `certs/<name>/unmanage` returns a certificate to import-only, keeping its versions. A
+managed certificate that never got a version is removed entirely. Importing into a managed
+certificate is allowed, so certbot can stay a fallback (§8.3). Rolling a managed certificate back
+to a version that does not match its definition is refused, because the engine would replace it at
+once.
+
+4.2.6. An account that is not yet registered is registered at the first issuance, if its terms of
+service are agreed to.
+
 Because the key and the description are on different paths, policies get the split that KV cannot
 give:
 
@@ -284,7 +316,7 @@ wrote, both on upgrade and when restoring an old Raft snapshot.
 
 | Key | Holds |
 |---|---|
-| `certs/<name>/meta` | Which version is current, the latest version number, `max_versions`. |
+| `certs/<name>/meta` | Which version is current, the latest version number, `max_versions`, and for a managed certificate its `managed` definition and `issuance` state. |
 | `certs/<name>/versions/<n>` | One version: certificate, chain, key and description, in one entry. |
 | `config/accounts/<name>` | An ACME account: its settings, its key (PKCS #8 PEM), and, once registered, a `registration` object with the account URL, status, contact and terms of service URL. |
 | `config/network` | The proxy URL, credentials included, `proxy_ca_bundle`, and the DNS settings of §7.1.7. Absent means direct connections and the defaults. |
@@ -356,6 +388,13 @@ stays.
 the active node. It picks certificates that are due and starts their work in the background. It does
 not block the periodic call.
 
+6.1.1. *Phase 3:* the periodic function runs every minute and starts an issuance for each
+certificate that needs one (§4.2.2) and is past its backoff. That is also what resumes work after a
+restart or failover: an attempt cut short simply happens again. Each certificate has at most one
+issuance running, and issuances that set lego's process-wide DNS client run one at a time
+(§7.1.9). An issuance is given 15 minutes. Background work uses the mount's storage view, not a
+request's, and stops when the mount is unmounted or the plugin reloaded.
+
 6.2. **Orders are persisted as a state machine.** The steps: order created, authorizations pending,
 DNS records published, challenge answered, finalized, downloaded. A failover or restart resumes the
 order instead of starting over. This matters for CA rate limits.
@@ -397,6 +436,10 @@ ballot SC-081 takes the maximum down to 47 days by 2029.
 6.5. **Failures:** exponential backoff per certificate, within the CA's rate limits. Every failure is
 kept in `status` and in the logs. When renewals keep failing, `info` shows how close the current
 certificate is to expiry, so monitoring needs no access to the engine's internals.
+
+6.5.1. *Phase 3:* the first retry comes after a minute, and each further one waits twice as long,
+up to six hours, with ±10% jitter. A failure is recorded only for the definition it was tried
+for: a certificate obtained for a definition that changed in the meantime is discarded.
 
 6.6. **While sealed, nothing renews.** The renewal window has to be long enough to survive an outage
 of the cluster. Expiry monitoring through `info` covers that.
@@ -502,6 +545,8 @@ the engine import the current certificate once.
 
 8.3. Configure the account and the DNS provider. Change the certificate from imported to managed, so
 its next renewal is the engine's own. Keep certbot as a fallback until a renewal has gone through.
+With the same names and key type, writing the definition changes nothing at once (§4.2.2); with
+other names, the engine issues at once. `certs/<name>/unmanage` goes back.
 
 8.4. Retire certbot and the importer.
 

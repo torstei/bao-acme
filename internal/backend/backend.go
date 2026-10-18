@@ -35,13 +35,18 @@ type backend struct {
 
 	locks []*locksutil.LockEntry
 	now   func() time.Time
+
+	// storage outlives requests, for work in the background.
+	storage logical.Storage
+	issuer  *issuer
 }
 
 // New returns an unconfigured backend.
 func New() *backend {
 	b := &backend{
-		locks: locksutil.CreateLocks(),
-		now:   time.Now,
+		locks:  locksutil.CreateLocks(),
+		now:    time.Now,
+		issuer: newIssuer(),
 	}
 	b.Backend = &framework.Backend{
 		Help:        strings.TrimSpace(backendHelp),
@@ -56,6 +61,7 @@ func New() *backend {
 			pathCertVersion(b),
 			pathCertRollback(b),
 			pathCertDestroy(b),
+			pathCertUnmanage(b),
 			pathCert(b),
 			pathAccountsList(b),
 			pathAccountRegister(b),
@@ -65,8 +71,16 @@ func New() *backend {
 			pathDNS(b),
 		},
 		RunningVersion: Version,
+		PeriodicFunc:   b.periodic,
+		Clean:          func(context.Context) { b.issuer.stop() },
 	}
 	return b
+}
+
+// Setup keeps the storage view for background work.
+func (b *backend) Setup(ctx context.Context, conf *logical.BackendConfig) error {
+	b.storage = conf.StorageView
+	return b.Backend.Setup(ctx, conf)
 }
 
 func (b *backend) lock(name string) *locksutil.LockEntry {
@@ -77,8 +91,10 @@ const backendHelp = `
 The bao-acme secrets engine stores TLS certificates with their private keys,
 versioned, together with a description it extracts from each certificate.
 
-Write a certificate to certs/<name>/import. Read it, key included, from
-certs/<name>, and read its description alone from certs/<name>/info.
+Write a certificate to certs/<name>/import, or write names, account and
+dns_provider to certs/<name> to have the engine obtain it over ACME. Read it,
+key included, from certs/<name>, and its description alone from
+certs/<name>/info.
 
 Configure ACME accounts at config/accounts/<name> and register them with
 config/accounts/<name>/register. config/network sets an optional forward
