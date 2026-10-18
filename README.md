@@ -80,6 +80,18 @@ bao write certificates/config/accounts/le directory_url=letsencrypt email=ops@ex
 bao write certificates/config/accounts/le/register
 ```
 
+Outgoing traffic:
+
+| Path | Method | |
+|---|---|---|
+| `config/network` | write, read, delete | `proxy_url`: a forward proxy (`http://` or `https://`, credentials write-only) that carries **all** of the engine's HTTP, with no direct fallback. `proxy_ca_bundle` trusts the proxy's certificate. DNS-01 settings: `dns_resolvers`, `dns_propagation_check` (`authoritative`, the default, or `resolvers` or `none`), `dns_propagation_delay`, `dns_tcp_only`. |
+
+The engine never reads `HTTPS_PROXY` or similar from the environment. With a proxy, HTTPS goes
+through `CONNECT`, so the proxy can allow-list host names such as `acme-v02.api.letsencrypt.org`.
+DNS cannot go through it: by default the engine needs UDP and TCP port 53 to the recursive
+resolvers in `/etc/resolv.conf` and to the authoritative servers of each zone it issues for
+(`dig NS <zone>`). See [design §7.1](docs/design.md).
+
 ```hcl
 path "certificates/certs/example.com"   { capabilities = ["read"] }   # a consumer
 path "certificates/certs/+/info"        { capabilities = ["read"] }   # monitoring

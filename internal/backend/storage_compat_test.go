@@ -135,6 +135,49 @@ func TestWritesStorageV1AccountFields(t *testing.T) {
 	missingFields(t, "config/accounts/example", readFixture(t, "config/accounts/example"), got)
 }
 
+func TestReadsStorageV1Network(t *testing.T) {
+	h := newHarness(t)
+	loadFixture(t, h, storageV1)
+
+	n := h.ok(logical.ReadOperation, "config/network", nil)
+	if n.Data["proxy_url"] != "https://proxy.example:8443" || n.Data["proxy_credentials_set"] != true {
+		t.Errorf("proxy = %v, %v", n.Data["proxy_url"], n.Data["proxy_credentials_set"])
+	}
+	if n.Data["dns_propagation_check"] != "resolvers" || n.Data["dns_propagation_delay"] != 30 || n.Data["dns_tcp_only"] != true {
+		t.Errorf("dns = %v", n.Data)
+	}
+	stored, err := loadNetwork(context.Background(), h.storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	network, err := stored.network()
+	if err != nil || network.Proxy.User.Username() != "bao" || len(network.ProxyCA) != 1 || len(network.DNS.Resolvers) != 1 {
+		t.Errorf("stored network does not load: %+v, %v", network, err)
+	}
+}
+
+func TestWritesStorageV1NetworkFields(t *testing.T) {
+	h := newHarness(t)
+	proxy := acmetest.StartProxy(t, acmetest.ProxyOptions{TLS: true})
+	h.ok(logical.UpdateOperation, "config/network", map[string]any{
+		"proxy_url":             "https://bao:s3cret@proxy.example:8443",
+		"proxy_ca_bundle":       proxy.CAPEM,
+		"dns_resolvers":         "10.0.0.53",
+		"dns_propagation_check": "resolvers",
+		"dns_propagation_delay": "30s",
+		"dns_tcp_only":          true,
+	})
+	entry, err := h.storage.Get(context.Background(), "config/network")
+	if err != nil || entry == nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(entry.Value, &got); err != nil {
+		t.Fatal(err)
+	}
+	missingFields(t, "config/network", readFixture(t, "config/network"), got)
+}
+
 func TestWritesStorageV1Fields(t *testing.T) {
 	h := newHarness(t)
 	h.imp("example.com", testcerts.New(t, testcerts.Options{}))

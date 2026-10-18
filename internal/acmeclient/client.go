@@ -7,15 +7,11 @@ package acmeclient
 import (
 	"context"
 	"crypto"
-	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"net"
-	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/go-acme/lego/v5/acme"
 	"github.com/go-acme/lego/v5/lego"
@@ -36,6 +32,8 @@ type Account struct {
 	AccountURL string
 	EABKeyID   string
 	EABHMACKey string
+	// Network is how to reach the CA; nil means directly.
+	Network *Network
 }
 
 // Registration is the CA's view of an account.
@@ -97,7 +95,7 @@ func newClient(a *Account) (*lego.Client, *user, error) {
 	}
 	cfg := lego.NewConfig(u)
 	cfg.CADirURL = a.DirectoryURL
-	cfg.HTTPClient = httpClientFor(a.CABundle)
+	cfg.HTTPClient = a.Network.HTTPClient(a.CABundle)
 	cfg.UserAgent = "bao-acme"
 	client, err := lego.NewClient(cfg)
 	if err != nil {
@@ -200,32 +198,5 @@ func registrationOf(acct *acme.ExtendedAccount, dir *Directory) *Registration {
 		Status:         acct.Status,
 		Contact:        acct.Contact,
 		TermsOfService: dir.TermsOfService,
-	}
-}
-
-func httpClientFor(bundle []*x509.Certificate) *http.Client {
-	var roots *x509.CertPool
-	if len(bundle) > 0 {
-		system, err := x509.SystemCertPool()
-		if err != nil {
-			system = x509.NewCertPool()
-		}
-		for _, c := range bundle {
-			system.AddCert(c)
-		}
-		roots = system
-	}
-	return &http.Client{
-		Timeout: 2 * time.Minute,
-		Transport: &http.Transport{
-			Proxy: http.ProxyFromEnvironment,
-			DialContext: (&net.Dialer{
-				Timeout:   30 * time.Second,
-				KeepAlive: 30 * time.Second,
-			}).DialContext,
-			TLSHandshakeTimeout:   30 * time.Second,
-			ResponseHeaderTimeout: 30 * time.Second,
-			TLSClientConfig:       &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12},
-		},
 	}
 }

@@ -258,6 +258,7 @@ wrote, both on upgrade and when restoring an old Raft snapshot.
 | `certs/<name>/meta` | Which version is current, the latest version number, `max_versions`. |
 | `certs/<name>/versions/<n>` | One version: certificate, chain, key and description, in one entry. |
 | `config/accounts/<name>` | An ACME account: its settings, its key (PKCS #8 PEM), and, once registered, a `registration` object with the account URL, status, contact and terms of service URL. |
+| `config/network` | The proxy URL, credentials included, `proxy_ca_bundle`, and the DNS settings of §7.1.7. Absent means direct connections and the defaults. |
 
 5.6.2. A `meta` entry:
 
@@ -387,24 +388,64 @@ seeing the content.
 7.1.2. The proxy is the engine's own configuration, not the environment. OpenBao starts a plugin
 with an empty environment plus its own variables, so the server's `HTTPS_PROXY` never reaches the
 plugin. The only route is `bao plugin register -env`, which is process-wide and not visible in the
-engine's configuration. Go also reads the proxy variables only once per process.
+engine's configuration. Go also reads the proxy variables only once per process. The engine
+therefore ignores proxy environment variables altogether, even ones given with `-env`, so that
+`config/network` is the whole story.
 
 7.1.3. Every DNS provider must therefore take an injected HTTP client. lego providers whose typed
 config has no HTTP client field cannot be proxied, and are refused while a proxy is set.
 
-7.1.4. **DNS lookups are not HTTP.** lego finds each name's zone and checks that the TXT record has
-propagated by sending DNS queries, by default directly to the zone's authoritative servers on port
-53. A proxy cannot carry those. `config/network` therefore also takes:
+7.1.4. **DNS is not HTTP.** No proxy carries DNS queries. A DNS-01 challenge makes two kinds of
+lookups:
 
-7.1.4.1. `dns_resolvers`: recursive resolvers, such as the site's own, used for every lookup
-instead of the authoritative servers. DNS egress is then one known destination.
+7.1.4.1. Discovery, through recursive resolvers: following CNAMEs from `_acme-challenge.<name>`,
+then finding the zone (SOA) and its authoritative servers (NS). These records are stable, so
+caching does them no harm.
 
-7.1.4.2. `propagation_check = false`: skip the check and wait a fixed `propagation_delay`, for when
-no lookups may leave at all.
+7.1.4.2. The propagation check, against the zone's authoritative servers directly, on port 53
+(UDP, falling back to TCP). Asking the authoritative servers is what makes the check reliable: a
+recursive resolver may hold a cached answer, including a cached "no such record" from before the
+TXT record was published.
 
-7.1.5. With a proxy and `dns_resolvers` set, the engine's whole egress is the proxy and the
-resolvers. The CA's validation queries go to the public DNS, not to the cluster, and need nothing
-from it.
+7.1.4.3. The propagation check is about timing, not security. It only decides when to ask the CA
+to validate. The CA then looks the record up itself, from its own resolvers in several network
+locations, and that is the step that matters. A stale or forged answer to the engine's check can
+at worst make it ask too early: the validation fails, the order starts over, and the failure counts
+against the CA's limit on failed validations. Skipping the check (`none`, below) is safe, at the
+cost of always waiting long enough for the slowest propagation. The discovery lookups are needed
+either way, because many providers need the zone name before they can call the provider's API.
+
+7.1.5. **The default is to check the authoritative servers only.** lego by default also requires
+the record to be visible through the recursive resolvers. The engine turns that off, because it
+is the step that negative caching delays.
+
+7.1.6. **The DNS egress is documented as a requirement, not hidden.** It is UDP and TCP port 53 to
+the authoritative servers of each zone the engine issues for, plus the recursive resolvers. For
+one DNS provider, the authoritative servers are a small fixed set, given by `dig NS <zone>`, so they
+can be allow-listed.
+
+7.1.7. `config/network` also takes these DNS settings:
+
+7.1.7.1. `dns_resolvers`: the recursive resolvers to use for discovery, as `host` or
+`host:port`. By default, the ones in the OpenBao host's `/etc/resolv.conf`. If there are none, the
+engine refuses to issue. lego would instead fall back to public resolvers, which would be egress
+nobody chose.
+
+7.1.7.2. `dns_propagation_check`: `authoritative` (the default), `resolvers` (check through
+`dns_resolvers` instead, for networks that cannot reach authoritative servers, accepting the
+caching delay), or `none`.
+
+7.1.7.3. `dns_propagation_delay`: a fixed wait before the CA is told to validate. With `none` it
+replaces the check, and it is required.
+
+7.1.7.4. `dns_tcp_only`: send every DNS query over TCP, for firewalls that allow only that.
+
+7.1.8. With a proxy set and `dns_propagation_check = resolvers`, the engine's whole egress is the
+proxy and the resolvers. The CA's own validation queries go to the public DNS, not to the
+cluster, and need nothing from it.
+
+7.1.9. lego keeps its DNS settings process-wide. Mounts served by one plugin process that use
+different settings therefore have their issuances serialised (§6).
 
 7.2. **DNS credentials can obtain certificates.** Whoever controls the DNS credentials, or the
 engine's configuration paths, can get certificates for those names. Policies on `config/` should be

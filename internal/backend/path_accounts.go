@@ -349,6 +349,13 @@ func (b *backend) handleAccountRegister(ctx context.Context, req *logical.Reques
 	if err != nil {
 		return nil, err
 	}
+	n, err := loadNetwork(ctx, req.Storage)
+	if err != nil {
+		return nil, err
+	}
+	if client.Network, err = n.network(); err != nil {
+		return nil, err
+	}
 
 	ctx, cancel := context.WithTimeout(ctx, acmeTimeout)
 	defer cancel()
