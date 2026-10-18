@@ -225,7 +225,7 @@ wrote, both on upgrade and when restoring an old Raft snapshot.
 { "current_version": 2, "latest_version": 2, "max_versions": 3 }
 ```
 
-5.6.3. A `versions/<n>` entry, about 3 KB for ECDSA P-256, with the PEM shortened here:
+5.6.3. A `versions/<n>` entry, about 2 KB for ECDSA P-256, with the PEM shortened here:
 
 ```json
 {
@@ -244,14 +244,14 @@ wrote, both on upgrade and when restoring an old Raft snapshot.
     "spki_sha256": "38d228ee…",
     "key_type": "ecdsa-p256"
   },
-  "fullchain": "-----BEGIN CERTIFICATE-----\n…",
   "certificate": "-----BEGIN CERTIFICATE-----\n…",
   "chain": "-----BEGIN CERTIFICATE-----\n…",
   "privkey": "-----BEGIN PRIVATE KEY-----\n…"
 }
 ```
 
-A destroyed version has no `privkey` and gains `"destroyed_time"`. `imported_by` is absent when the
+`fullchain` is not stored: reads return `certificate` followed by `chain`. A destroyed version
+has no `privkey` and gains `"destroyed_time"`. `imported_by` is absent when the
 request carried no identity. The description is kept as it was extracted at write time. A later
 release that describes certificates differently does not rewrite old versions.
 
@@ -271,6 +271,12 @@ that adds a field whose loss matters.
 
 5.6.4.4. These rules apply from the first release, `v0.1.0`, regardless of semantic versioning's
 pre-1.0 leeway.
+
+5.6.5. Tests enforce this format. `internal/backend/testdata/storage-v1/` holds real entries in
+this format, one file per storage key, and is never regenerated. One test loads them and reads
+them through the API. Another checks that a fresh write still produces every field they have, so
+a renamed JSON tag fails CI. A new storage format adds a `storage-v2/` beside it, and `storage-v1/`
+stays.
 
 ## 6. Issuing and renewing (managed certificates)
 

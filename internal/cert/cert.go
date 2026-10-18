@@ -29,10 +29,9 @@ type Bundle struct {
 
 	// Re-encoded from the parsed values, so stored PEM does not depend on the
 	// writer's formatting and keys are always PKCS #8.
-	FullchainPEM string
-	CertPEM      string
-	ChainPEM     string
-	KeyPEM       string
+	CertPEM  string
+	ChainPEM string
+	KeyPEM   string
 }
 
 // Description is what the engine says about a certificate. It is derived
@@ -83,16 +82,14 @@ func Parse(fullchain, privkey string, now time.Time) (*Bundle, error) {
 		return nil, fmt.Errorf("encoding private key: %w", err)
 	}
 
-	b := &Bundle{
+	return &Bundle{
 		Leaf:          leaf,
 		Intermediates: certs[1:],
 		Key:           key,
 		CertPEM:       encodeCertificates(certs[:1]),
 		ChainPEM:      encodeCertificates(certs[1:]),
 		KeyPEM:        string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})),
-	}
-	b.FullchainPEM = b.CertPEM + b.ChainPEM
-	return b, nil
+	}, nil
 }
 
 // Describe extracts the description of the bundle's leaf certificate.

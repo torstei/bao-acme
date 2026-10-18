@@ -238,7 +238,7 @@ func (b *backend) versionResponse(ctx context.Context, s logical.Storage, name s
 		return logical.ErrorResponse("the private key of version %d was destroyed at %s", n, v.DestroyedTime.Format(time.RFC3339)), nil
 	}
 	data := versionData(v)
-	data["fullchain"] = v.Fullchain
+	data["fullchain"] = v.Certificate + v.Chain
 	data["certificate"] = v.Certificate
 	data["chain"] = v.Chain
 	data["privkey"] = v.Privkey
@@ -378,7 +378,6 @@ func (b *backend) handleImport(ctx context.Context, req *logical.Request, d *fra
 		CreatedTime: now,
 		Source:      sourceImport,
 		Description: desc,
-		Fullchain:   bundle.FullchainPEM,
 		Certificate: bundle.CertPEM,
 		Chain:       bundle.ChainPEM,
 		Privkey:     bundle.KeyPEM,

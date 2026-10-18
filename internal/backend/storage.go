@@ -39,7 +39,6 @@ type certVersion struct {
 	ImportedBy  *identity        `json:"imported_by,omitempty"`
 	Description cert.Description `json:"description"`
 
-	Fullchain   string `json:"fullchain"`
 	Certificate string `json:"certificate"`
 	Chain       string `json:"chain"`
 	Privkey     string `json:"privkey,omitempty"`

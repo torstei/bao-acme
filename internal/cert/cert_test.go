@@ -45,7 +45,7 @@ func TestParseAndDescribe(t *testing.T) {
 	if len(d.SHA256) != 64 || len(d.SPKISHA256) != 64 || d.SHA256 == d.SPKISHA256 {
 		t.Errorf("fingerprints look wrong: %q %q", d.SHA256, d.SPKISHA256)
 	}
-	if strings.Count(b.ChainPEM, "BEGIN CERTIFICATE") != 1 || b.FullchainPEM != b.CertPEM+b.ChainPEM {
+	if strings.Count(b.ChainPEM, "BEGIN CERTIFICATE") != 1 || b.CertPEM+b.ChainPEM != chain.Fullchain {
 		t.Errorf("chain split wrong")
 	}
 }

@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "created_time": "2026-10-18T13:20:10.642309183Z",
+  "source": "import",
+  "imported_by": {
+    "entity_id": "entity-1",
+    "display_name": "approle-importer"
+  },
+  "description": {
+    "names": [
+      "*.example.com",
+      "example.com"
+    ],
+    "common_name": "example.com",
+    "not_before": "2026-10-18T12:20:10Z",
+    "not_after": "2027-01-16T12:20:10Z",
+    "serial": "093dc417ec620f35",
+    "issuer": "Test CA T1",
+    "sha256": "610a9a2d43ada1896569242416f1ceb3c04f30f0a1cb1a33a8707d73ebc9c9cc",
+    "spki_sha256": "821e8b80b95a73d4e8c6b9d8e7ab88bb922d917008e78a20bb9c43a3e7cc2742",
+    "key_type": "ecdsa-p256"
+  },
+  "certificate": "-----BEGIN CERTIFICATE-----\nMIIBmTCCAUCgAwIBAgIICT3EF+xiDzUwCgYIKoZIzj0EAwIwHzEQMA4GA1UEChMH\nVGVzdCBDQTELMAkGA1UEAxMCVDEwHhcNMjYxMDE4MTIyMDEwWhcNMjcwMTE2MTIy\nMDEwWjAWMRQwEgYDVQQDEwtleGFtcGxlLmNvbTBZMBMGByqGSM49AgEGCCqGSM49\nAwEHA0IABMuTq5tiorhtwfq+UBGPqaPvlyC07ZiGFf/gvI6i5C19ehZOp1ohXILT\nnGEQTAA7WZ66FTD0z9Vwe3gfiLfXGKyjbzBtMA4GA1UdDwEB/wQEAwIHgDATBgNV\nHSUEDDAKBggrBgEFBQcDATAfBgNVHSMEGDAWgBQh4TFn3NLbVfcA5KBQzAO50yWa\nKTAlBgNVHREEHjAcgg0qLmV4YW1wbGUuY29tggtleGFtcGxlLmNvbTAKBggqhkjO\nPQQDAgNHADBEAiABiaroooBnG9SPZWRDJolrFXABpFLoxdGdmPbzIFG6iAIgUfbQ\nES6ievtLXRBglVD+SZFvsFVqXhM10I0OL1FpEZ4=\n-----END CERTIFICATE-----\n",
+  "chain": "-----BEGIN CERTIFICATE-----\nMIIBnzCCAUWgAwIBAgIJAJWV2rGxbvzbMAoGCCqGSM49BAMCMCYxEDAOBgNVBAoT\nB1Rlc3QgQ0ExEjAQBgNVBAMTCVRlc3QgUm9vdDAeFw0yNjEwMTcxMzIwMTBaFw0z\nMTEwMTcxMzIwMTBaMB8xEDAOBgNVBAoTB1Rlc3QgQ0ExCzAJBgNVBAMTAlQxMFkw\nEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE+acf+uW/JwgrdOlcVf1nIx5by2qORpwh\nqhJgigbwLGyTLH95MgsucDaQL6NlUfRx5gGUARNob8SXDAFmV+zAAqNjMGEwDgYD\nVR0PAQH/BAQDAgIEMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFCHhMWfc0ttV\n9wDkoFDMA7nTJZopMB8GA1UdIwQYMBaAFOurRIiWk+r/y354xW+sR3CR3JpIMAoG\nCCqGSM49BAMCA0gAMEUCIBxkTvXjxeg6UvuVm4m3+rQT1TeT2cuHqWs9LsxqA0BC\nAiEAo6n/nAqJbRJFUw31kEnVSpN1QZlhJDObvgWaSd2Rh+A=\n-----END CERTIFICATE-----\n",
+  "destroyed_time": "2026-10-18T13:20:10.643119611Z"
+}
+
