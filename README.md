@@ -87,6 +87,8 @@ Managed certificates, obtained and renewed by the engine over ACME with DNS-01:
 | `certs/<name>` | write | `names`, `account`, `dns_provider`, optionally `key_type` (default `ecdsa-p256`). Returns at once; the certificate is obtained in the background. An imported certificate under the same name keeps its versions. |
 | `certs/<name>/info` | read | Adds `definition` and `issuance`: why one is needed, last attempt and success, last error, failures, next attempt. |
 | `certs/<name>/renew` | write | Renew now, ignoring the schedule and any backoff. |
+| `certs/<name>/status` | read | `state` (`valid`, `renewal_due`, `renewing`, `issuing`, `pending`, `failing`, `expired`), `expires_in`, what is running now, and the last ten attempts. Imported certificates too. |
+| `status` | read | Every certificate's state and expiry, and `counts` per state, in one read. |
 | `certs/<name>/unmanage` | write | Back to import-only, keeping the versions. |
 
 Renewal follows the CA's suggested window (ARI, RFC 9773) where offered, which also picks up a
@@ -148,6 +150,7 @@ resolvers in `/etc/resolv.conf` and to the authoritative servers of each zone it
 path "certificates/certs/example.com"   { capabilities = ["read"] }   # a consumer
 path "certificates/certs/+/info"        { capabilities = ["read"] }   # monitoring
 path "certificates/certs/+/import"      { capabilities = ["update"] } # an importer
+path "certificates/status"              { capabilities = ["read"] }   # monitoring, one read for all
 ```
 
 ## Licence

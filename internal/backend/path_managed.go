@@ -89,7 +89,14 @@ func (b *backend) define(ctx context.Context, s logical.Storage, name string, d 
 
 	if m.Managed == nil || !sameDefinition(m.Managed, &spec) {
 		spec.DefinedTime = b.now().UTC()
+		var history []attemptRecord
+		if m.Issuance != nil {
+			history = m.Issuance.Attempts
+		}
 		m.Issuance = nil
+		if len(history) > 0 {
+			m.Issuance = &issuanceState{Attempts: history}
+		}
 	}
 	m.Managed = &spec
 	if err := putJSON(ctx, s, metaKey(name), m); err != nil {

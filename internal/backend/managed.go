@@ -53,6 +53,28 @@ type issuanceState struct {
 	// RenewRequested is set by certs/<name>/renew until a certificate is
 	// stored.
 	RenewRequested bool `json:"renew_requested,omitempty"`
+	// Attempts are the most recent attempts, newest first.
+	Attempts []attemptRecord `json:"attempts,omitempty"`
+}
+
+const maxAttempts = 10
+
+// attemptRecord is one finished attempt to obtain a certificate.
+type attemptRecord struct {
+	StartTime       time.Time `json:"start_time"`
+	DurationSeconds float64   `json:"duration_seconds"`
+	Reason          string    `json:"reason"`
+	// Outcome is "issued" or "failed".
+	Outcome string `json:"outcome"`
+	Error   string `json:"error,omitempty"`
+	Version int    `json:"version,omitempty"`
+}
+
+func (st *issuanceState) addAttempt(a attemptRecord) {
+	st.Attempts = append([]attemptRecord{a}, st.Attempts...)
+	if len(st.Attempts) > maxAttempts {
+		st.Attempts = st.Attempts[:maxAttempts]
+	}
 }
 
 // renewalSchedule says when to renew one version, identified by its
@@ -183,25 +205,32 @@ func backoff(failures int) time.Duration {
 // issuer runs issuances in the background, at most one per certificate.
 type issuer struct {
 	mu      sync.Mutex
-	running map[string]bool
+	running map[string]*job
 	ctx     context.Context
 	cancel  context.CancelFunc
 	wg      sync.WaitGroup
 }
 
+// job is a running piece of background work, as status shows it.
+type job struct {
+	Since time.Time
+	// Reason is set once the job knows it is issuing, and why.
+	Reason string
+}
+
 func newIssuer() *issuer {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &issuer{running: map[string]bool{}, ctx: ctx, cancel: cancel}
+	return &issuer{running: map[string]*job{}, ctx: ctx, cancel: cancel}
 }
 
 // start runs fn for name unless it is already running.
 func (i *issuer) start(name string, fn func(context.Context)) bool {
 	i.mu.Lock()
 	defer i.mu.Unlock()
-	if i.running[name] || i.ctx.Err() != nil {
+	if i.running[name] != nil || i.ctx.Err() != nil {
 		return false
 	}
-	i.running[name] = true
+	i.running[name] = &job{Since: time.Now().UTC()}
 	i.wg.Add(1)
 	go func() {
 		defer i.wg.Done()
@@ -215,6 +244,25 @@ func (i *issuer) start(name string, fn func(context.Context)) bool {
 		fn(ctx)
 	}()
 	return true
+}
+
+func (i *issuer) setReason(name, reason string) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if j := i.running[name]; j != nil {
+		j.Reason = reason
+	}
+}
+
+// job returns a copy of name's running job, or nil.
+func (i *issuer) job(name string) *job {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if j := i.running[name]; j != nil {
+		c := *j
+		return &c
+	}
+	return nil
 }
 
 func (i *issuer) stop() {
@@ -346,9 +394,12 @@ func (b *backend) issue(ctx context.Context, s logical.Storage, name string) (bo
 		return false, err
 	}
 	b.Logger().Info("obtaining a certificate", "certificate", name, "reason", claim.reason, "names", claim.spec.Names)
+	b.issuer.setReason(name, claim.reason)
 
+	start := b.now().UTC()
 	bundle, issueErr := b.obtain(ctx, s, &claim.spec, claim.replaces)
-	return b.recordIssuance(ctx, s, name, &claim.spec, bundle, issueErr)
+	attempt := attemptRecord{StartTime: start, DurationSeconds: b.now().Sub(start).Seconds(), Reason: claim.reason}
+	return b.recordIssuance(ctx, s, name, &claim.spec, bundle, issueErr, attempt)
 }
 
 type issuanceClaim struct {
@@ -483,7 +534,7 @@ func (b *backend) registeredAccount(ctx context.Context, s logical.Storage, name
 	return client, nil
 }
 
-func (b *backend) recordIssuance(ctx context.Context, s logical.Storage, name string, spec *managedSpec, bundle *cert.Bundle, issueErr error) (bool, error) {
+func (b *backend) recordIssuance(ctx context.Context, s logical.Storage, name string, spec *managedSpec, bundle *cert.Bundle, issueErr error, attempt attemptRecord) (bool, error) {
 	l := b.lock(name)
 	l.Lock()
 	defer l.Unlock()
@@ -515,6 +566,8 @@ func (b *backend) recordIssuance(ctx context.Context, s logical.Storage, name st
 		m.Issuance.Failures++
 		m.Issuance.LastError = msg
 		m.Issuance.NextAttemptTime = now.Add(backoff(m.Issuance.Failures))
+		attempt.Outcome, attempt.Error = "failed", msg
+		m.Issuance.addAttempt(attempt)
 		if err := putJSON(ctx, s, metaKey(name), m); err != nil {
 			return false, err
 		}
@@ -525,7 +578,10 @@ func (b *backend) recordIssuance(ctx context.Context, s logical.Storage, name st
 	if err != nil {
 		return false, err
 	}
-	m.Issuance = &issuanceState{LastAttemptTime: m.Issuance.LastAttemptTime, LastSuccessTime: now}
+	attempt.Outcome, attempt.Version = "issued", v.Version
+	history := m.Issuance.Attempts
+	m.Issuance = &issuanceState{LastAttemptTime: m.Issuance.LastAttemptTime, LastSuccessTime: now, Attempts: history}
+	m.Issuance.addAttempt(attempt)
 	if err := putJSON(ctx, s, metaKey(name), m); err != nil {
 		return false, err
 	}
