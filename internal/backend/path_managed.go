@@ -67,6 +67,9 @@ func (b *backend) define(ctx context.Context, s logical.Storage, name string, d 
 	if raw, ok := d.GetOk("dns_provider"); ok {
 		spec.DNSProvider = raw.(string)
 	}
+	if raw, ok := d.GetOk("reuse_key"); ok {
+		spec.ReuseKey = raw.(bool)
+	}
 	if spec.Account == "" || spec.DNSProvider == "" {
 		return logical.ErrorResponse("account and dns_provider are required to manage a certificate"), false, logical.ErrInvalidRequest
 	}
@@ -155,7 +158,13 @@ func pathCertRenew(b *backend) *framework.Path {
 			OperationVerb:   "renew",
 			OperationSuffix: "certificate",
 		},
-		Fields: map[string]*framework.FieldSchema{"name": nameField()},
+		Fields: map[string]*framework.FieldSchema{
+			"name": nameField(),
+			"rotate_key": {
+				Type:        framework.TypeBool,
+				Description: "Use a new key for this renewal, even if the definition reuses keys. Later renewals reuse the new one.",
+			},
+		},
 		Operations: map[logical.Operation]framework.OperationHandler{
 			logical.UpdateOperation: &framework.PathOperation{Callback: b.handleRenew},
 		},
@@ -165,13 +174,13 @@ func pathCertRenew(b *backend) *framework.Path {
 
 func (b *backend) handleRenew(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
 	name := d.Get("name").(string)
-	if err := b.requestRenewal(ctx, req.Storage, name); err != nil {
+	if err := b.requestRenewal(ctx, req.Storage, name, d.Get("rotate_key").(bool)); err != nil {
 		return logical.ErrorResponse(err.Error()), logical.ErrInvalidRequest
 	}
 	return &logical.Response{Data: map[string]any{"issuing": b.startIssuance(name)}}, nil
 }
 
-func (b *backend) requestRenewal(ctx context.Context, s logical.Storage, name string) error {
+func (b *backend) requestRenewal(ctx context.Context, s logical.Storage, name string, rotateKey bool) error {
 	l := b.lock(name)
 	l.Lock()
 	defer l.Unlock()
@@ -187,6 +196,7 @@ func (b *backend) requestRenewal(ctx context.Context, s logical.Storage, name st
 		m.Issuance = &issuanceState{}
 	}
 	m.Issuance.RenewRequested = true
+	m.Issuance.RotateKey = m.Issuance.RotateKey || rotateKey
 	m.Issuance.NextAttemptTime = time.Time{}
 	return putJSON(ctx, s, metaKey(name), m)
 }

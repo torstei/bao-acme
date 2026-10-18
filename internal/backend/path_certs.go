@@ -71,6 +71,10 @@ func pathCert(b *backend) *framework.Path {
 				Type:        framework.TypeString,
 				Description: "DNS provider (config/dns/<name>) for a managed certificate's DNS-01 challenges.",
 			},
+			"reuse_key": {
+				Type:        framework.TypeBool,
+				Description: "Renew a managed certificate with its current key, so its public key stays the same. A destroyed key is never reused. Default false.",
+			},
 			"max_versions": {
 				Type:        framework.TypeInt,
 				Description: fmt.Sprintf("Number of versions to keep. Defaults to %d for a new certificate; unchanged if omitted.", defaultMaxVersions),
@@ -208,13 +212,16 @@ func pathCertDestroy(b *backend) *framework.Path {
 			"versions": {
 				Type:        framework.TypeCommaIntSlice,
 				Description: "Versions whose private keys to destroy.",
-				Required:    true,
+			},
+			"spki_sha256": {
+				Type:        framework.TypeString,
+				Description: "Destroy the key with this public key fingerprint (info's spki_sha256) in every version that holds it, for a compromised key.",
 			},
 		},
 		Operations: map[logical.Operation]framework.OperationHandler{
 			logical.UpdateOperation: &framework.PathOperation{Callback: b.handleDestroy},
 		},
-		HelpSynopsis: "Destroy the private keys of the given versions. Their descriptions remain.",
+		HelpSynopsis: "Destroy the private keys of the given versions, or of every version holding one key. Their descriptions remain.",
 	}
 }
 
@@ -354,6 +361,7 @@ func definitionData(s *managedSpec) map[string]any {
 		"key_type":     s.KeyType,
 		"account":      s.Account,
 		"dns_provider": s.DNSProvider,
+		"reuse_key":    s.ReuseKey,
 		"defined_time": s.DefinedTime,
 	}
 }
@@ -367,6 +375,7 @@ func issuanceData(m *certMeta, current *certVersion, now time.Time) map[string]a
 		data["failures"] = st.Failures
 		data["next_attempt_time"] = st.NextAttemptTime
 		data["renew_requested"] = st.RenewRequested
+		data["rotate_key_requested"] = st.RotateKey
 	}
 	if r := m.Renewal; r != nil && current != nil && r.ForSHA256 == current.Description.SHA256 {
 		data["renewal"] = map[string]any{
@@ -521,8 +530,9 @@ func (b *backend) handleRollback(ctx context.Context, req *logical.Request, d *f
 func (b *backend) handleDestroy(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
 	name := d.Get("name").(string)
 	ns := d.Get("versions").([]int)
-	if len(ns) == 0 {
-		return logical.ErrorResponse("versions is required"), logical.ErrInvalidRequest
+	spki := strings.ToLower(strings.TrimSpace(d.Get("spki_sha256").(string)))
+	if (len(ns) == 0) == (spki == "") {
+		return logical.ErrorResponse("give either versions or spki_sha256"), logical.ErrInvalidRequest
 	}
 
 	l := b.lock(name)
@@ -536,13 +546,45 @@ func (b *backend) handleDestroy(ctx context.Context, req *logical.Request, d *fr
 	if m == nil {
 		return logical.ErrorResponse("no certificate named %q", name), logical.ErrInvalidRequest
 	}
-	now := b.now().UTC()
-	for _, n := range ns {
+	all, err := listVersions(ctx, req.Storage, name)
+	if err != nil {
+		return nil, err
+	}
+	versions := map[int]*certVersion{}
+	for _, n := range all {
 		v, err := loadVersion(ctx, req.Storage, name, n)
 		if err != nil {
 			return nil, err
 		}
-		if v == nil || v.destroyed() {
+		if v != nil {
+			versions[n] = v
+		}
+	}
+
+	targets := map[int]bool{}
+	destroyedKeys := map[string]bool{}
+	if spki != "" {
+		for n, v := range versions {
+			if v.Description.SPKISHA256 == spki {
+				targets[n] = true
+			}
+		}
+		if len(targets) == 0 {
+			return logical.ErrorResponse("no version holds a key with spki_sha256 %s", spki), logical.ErrInvalidRequest
+		}
+	}
+	for _, n := range ns {
+		targets[n] = true
+	}
+
+	now := b.now().UTC()
+	for n := range targets {
+		v := versions[n]
+		if v == nil {
+			continue
+		}
+		destroyedKeys[v.Description.SPKISHA256] = true
+		if v.destroyed() {
 			continue
 		}
 		v.Privkey = ""
@@ -551,7 +593,26 @@ func (b *backend) handleDestroy(ctx context.Context, req *logical.Request, d *fr
 			return nil, err
 		}
 	}
-	return b.infoResponse(ctx, req.Storage, name, m)
+	if err := clearInflightKey(ctx, req.Storage, name, destroyedKeys); err != nil {
+		return nil, err
+	}
+
+	resp, err := b.infoResponse(ctx, req.Storage, name, m)
+	if err != nil || resp == nil {
+		return resp, err
+	}
+	for k := range destroyedKeys {
+		var holders []string
+		for _, n := range all {
+			if v := versions[n]; v != nil && !v.destroyed() && v.Description.SPKISHA256 == k {
+				holders = append(holders, strconv.Itoa(n))
+			}
+		}
+		if len(holders) > 0 {
+			resp.AddWarning(fmt.Sprintf("version(s) %s still hold the same key (spki_sha256 %s); destroy with spki_sha256 to remove it everywhere. It will not be reused.", strings.Join(holders, ", "), k))
+		}
+	}
+	return resp, nil
 }
 
 func (b *backend) handleDelete(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {

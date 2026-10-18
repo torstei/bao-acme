@@ -8,7 +8,9 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/pem"
 	"fmt"
 	"strings"
@@ -53,4 +55,15 @@ func ParseKey(privkey string) (crypto.Signer, error) {
 // nothing but CERTIFICATE blocks.
 func ParseCertificates(pemData string) ([]*x509.Certificate, error) {
 	return parseCertificates(pemData)
+}
+
+// SPKISHA256 is the hex SHA-256 of a public key's SubjectPublicKeyInfo, as
+// Description.SPKISHA256 gives it for a certificate.
+func SPKISHA256(pub crypto.PublicKey) (string, error) {
+	der, err := x509.MarshalPKIXPublicKey(pub)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(der)
+	return hex.EncodeToString(sum[:]), nil
 }

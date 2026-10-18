@@ -1,0 +1,40 @@
+{
+  "current_version": 1,
+  "latest_version": 1,
+  "max_versions": 3,
+  "managed": {
+    "names": [
+      "reusing.example.test"
+    ],
+    "key_type": "ecdsa-p256",
+    "account": "le",
+    "dns_provider": "bind",
+    "reuse_key": true,
+    "defined_time": "2026-10-18T16:40:55.031088006Z"
+  },
+  "issuance": {
+    "last_attempt_time": "2026-10-18T16:40:55.031231648Z",
+    "last_success_time": "2026-10-18T16:40:56.134536661Z",
+    "renew_requested": true,
+    "rotate_key": true,
+    "attempts": [
+      {
+        "start_time": "2026-10-18T16:40:55.031443185Z",
+        "duration_seconds": 1.103059183,
+        "reason": "no certificate yet",
+        "outcome": "issued",
+        "version": 1
+      }
+    ]
+  },
+  "renewal": {
+    "for_sha256": "7142d06bae0d073a024fbe031555be62c55de9eb01139b98dfa3ca8c672f05cd",
+    "renew_at": "2026-12-18T11:37:14.004038038Z",
+    "source": "ari",
+    "window_start": "2026-12-16T16:40:55Z",
+    "window_end": "2026-12-18T16:40:55Z",
+    "checked_time": "2026-10-18T16:40:56.141826894Z",
+    "next_check_time": "2026-10-18T22:40:56.141826894Z"
+  }
+}
+
