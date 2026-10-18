@@ -317,20 +317,27 @@ and so on) would let consumers written against a KV layout switch mounts without
 4.5.1. **Why.** OpenBao authorizes by path. Up to v0.3.0, a definition at `certs/<name>` chose its
 `account` and `dns_provider` in its fields, so whoever could write any certificate path could
 obtain a certificate, key included, for every name any configured DNS provider could prove. From
-v0.4.0 the ACME account is the unit of authority, and every operation names it in its path. A
-policy on `accounts/<name>/` is then the whole authorization for one team, or one purpose.
+v0.4.0 the ACME account is the unit of authority, and every use of an account names it in its
+path. A policy on `accounts/<account>/*` is then the whole authorization for one team, or one
+purpose.
 
 4.5.2. The account is also a boundary at the CA. With CAA `accounturi` (§7.3), a zone can be
 pinned to one account, and the CA refuses every other account for it, whatever DNS records it can
 publish. The engine's boundary and the CA's are the same.
 
-4.5.3. Paths, relative to the mount:
+4.5.3. **Settings and use have separate prefixes,** as is usual in OpenBao (the PKI engine has
+`roles/<role>` and `issue/<role>`). An account's settings stay at `config/accounts/<account>`;
+everything done with the account is under `accounts/<account>/`. No path differs from another only
+by a trailing slash, so a policy cannot grant one where the other was meant, and
+`accounts/<account>` itself has no operations.
+
+4.5.4. Paths, relative to the mount:
 
 | Path | Method | What |
 |---|---|---|
-| `accounts/` | list | Account names. |
-| `accounts/<account>` | write, read, delete | The account: as `config/accounts/<name>` was (§4.1). `directory_url` is needed only to register and issue, so an account may hold just imported certificates. Delete is refused while the account holds certificates or DNS providers. |
-| `accounts/<account>/register` | write | As before. |
+| `config/accounts/` | list | Account names. |
+| `config/accounts/<account>` | write, read, delete | The account, as before (§4.1). `directory_url` is needed only to register and issue, so an account may hold just imported certificates. Delete is refused while the account owns certificates or DNS providers. |
+| `config/accounts/<account>/register` | write | As before. |
 | `accounts/<account>/dns/` | list | The account's DNS providers. |
 | `accounts/<account>/dns/<provider>` | write, read, delete | A DNS provider, as `config/dns/<name>` was. Usable only by this account's certificates. Delete is refused while a certificate uses it, or an in-flight entry still needs it to remove records. |
 | `accounts/<account>/certs/` | list | The account's certificates, with `covers` as before. Found by reading each certificate's owner, which is fine for hundreds of certificates. |
@@ -340,21 +347,27 @@ publish. The engine's boundary and the CA's are the same.
 | `config/network` | write, read, delete | Unchanged: mount-wide, for the operator. |
 | `status` | read | Unchanged: every account's certificates. |
 
-4.5.4. Certificate and DNS provider names are unique per mount, not per account: two teams sharing
+4.5.5. Certificate and DNS provider names are unique per mount, not per account: two teams sharing
 a mount cannot both have a certificate called `www`, and use a naming convention such as
 `team-a-www` instead. Writing a name another account owns is refused. A DNS key that two accounts
 both need is entered twice, under two names. That is duplication, but it makes explicit who can use
 which credentials.
 
-4.5.5. `config/accounts/`, `config/dns/` and `certs/` are removed. Nothing has been deployed
-against them, so there is no transition period.
+4.5.6. `config/dns/` and `certs/` are removed. Nothing has been deployed against them, so there is
+no transition period.
 
-4.5.6. Example policies:
+4.5.7. Example policies:
 
 ```hcl
-# a team: everything in its own account
-path "acme/accounts/team-a"   { capabilities = ["read"] }
+# a team: everything done with its own account
 path "acme/accounts/team-a/*" { capabilities = ["create", "read", "update", "delete", "list"] }
+
+# a team that may also see its account's settings, such as the CAA records to publish
+path "acme/config/accounts/team-a" { capabilities = ["read"] }
+
+# a team whose DNS credentials the operator manages: certificates only
+path "acme/accounts/team-a/certs/*" { capabilities = ["create", "read", "update", "delete", "list"] }
+path "acme/accounts/team-a/status"  { capabilities = ["read"] }
 
 # a consumer: one certificate, key included
 path "acme/accounts/team-a/certs/www" { capabilities = ["read"] }
@@ -362,24 +375,23 @@ path "acme/accounts/team-a/certs/www" { capabilities = ["read"] }
 # monitoring: every state, no keys
 path "acme/status" { capabilities = ["read"] }
 
-# the operator: the network settings and creating accounts
-path "acme/config/network" { capabilities = ["create", "read", "update", "delete"] }
-path "acme/accounts/+"     { capabilities = ["create", "read", "update", "delete"] }
+# the operator: network settings and accounts
+path "acme/config/network"    { capabilities = ["create", "read", "update", "delete"] }
+path "acme/config/accounts/*" { capabilities = ["create", "read", "update", "delete", "list"] }
 ```
 
-A team that may also create and delete its own account is given `acme/accounts/team-a` with those
-capabilities. One that should not see the account's settings gets only `acme/accounts/team-a/*`.
+Write `accounts/team-a/*`, with the slash. `accounts/team-a*` also matches `accounts/team-ab/…`.
 
-4.5.7. When one DNS key covers more names than an account should have, for example one Domeneshop
+4.5.8. When one DNS key covers more names than an account should have, for example one Domeneshop
 login holding every team's zones, the credentials do not limit the account. An optional
 `allowed_domains` on the account, set by the operator and checked when a definition is written,
-would. It is left for when someone needs it. Until then, give each account credentials that cover
-only its own names, or CAA-pin the other names to their accounts.
+would. It is left for when someone needs it (#30). Until then, give each account credentials that
+cover only its own names, or CAA-pin the other names to their accounts.
 
-4.5.8. Separate mounts per team remain possible, for anyone who wants each team's accounts,
+4.5.9. Separate mounts per team remain possible, for anyone who wants each team's accounts,
 network settings and monitoring fully apart.
 
-4.5.9. The storage stays format 1. Certificates and DNS providers gain an `account` field naming
+4.5.10. The storage stays format 1. Certificates and DNS providers gain an `account` field naming
 their owner (§5.7).
 
 ## 5. Storage
@@ -517,7 +529,7 @@ where they are, and two entries gain a field.
 ```
 
 5.7.2. A name is enough because an account cannot be deleted while it owns certificates or DNS
-providers (§4.5.3), and accounts cannot be renamed. So no entry can point at an account that is
+providers (§4.5.4), and accounts cannot be renamed. So no entry can point at an account that is
 gone, or at a new account later created under the same name.
 
 5.7.3. A managed certificate's definition already names its account (`managed.account`). The field
