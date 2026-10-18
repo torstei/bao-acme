@@ -62,9 +62,12 @@ plugin "secret" "bao-acme" {
 }
 ```
 
-**Always set `sha256sum`.** Without it, OpenBao registers the plugin with no checksum and runs
-whatever file is at that path. With it, a replaced binary is refused with `checksums did not
-match`.
+`sha256sum` guards against mistakes, not attackers. With it, OpenBao refuses a binary other than
+the one you verified: a wrong version, the wrong architecture, a half-copied file. Without it,
+OpenBao registers the plugin with no checksum and runs whatever file is at that path. It does
+nothing against anyone who can write the configuration or replace OpenBao itself, so the real
+protection is that only root can write the plugin directory and the configuration, and that you
+verify each release when you install it.
 
 Then, once:
 
