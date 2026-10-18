@@ -3,7 +3,9 @@ module github.com/torstei/bao-acme
 go 1.27.0
 
 require (
+	github.com/go-acme/lego/v5 v5.5.2
 	github.com/hashicorp/go-hclog v1.6.3
+	github.com/letsencrypt/pebble/v2 v2.10.1
 	github.com/openbao/openbao/api/v2 v2.7.0
 	github.com/openbao/openbao/sdk/v2 v2.7.1
 )
@@ -23,7 +25,7 @@ require (
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
 	github.com/fatih/color v1.19.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
-	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.5 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
@@ -47,8 +49,10 @@ require (
 	github.com/hashicorp/hcl v1.0.1-vault-7 // indirect
 	github.com/hashicorp/yamux v0.1.2 // indirect
 	github.com/klauspost/compress v1.19.2 // indirect
+	github.com/letsencrypt/challtestsrv v1.4.2 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
+	github.com/miekg/dns v1.1.73 // indirect
 	github.com/mitchellh/copystructure v1.2.0 // indirect
 	github.com/mitchellh/go-testing-interface v1.14.2-0.20210821155943-2d9075ca8770 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
@@ -74,12 +78,13 @@ require (
 	go.opentelemetry.io/otel/metric v1.45.0 // indirect
 	go.opentelemetry.io/otel/trace v1.45.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/crypto v0.56.0 // indirect
-	golang.org/x/net v0.58.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.41.0 // indirect
-	golang.org/x/time v0.15.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260807164820-c8921c73eeea // indirect
+	golang.org/x/crypto v0.57.0 // indirect
+	golang.org/x/net v0.59.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
+	golang.org/x/time v0.16.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260819154853-08b0e4226688 // indirect
 	google.golang.org/grpc v1.83.2 // indirect
-	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af // indirect
+	google.golang.org/protobuf v1.36.12 // indirect
+	software.sslmate.com/src/go-pkcs12 v0.7.3 // indirect
 )

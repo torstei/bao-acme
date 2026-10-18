@@ -8,17 +8,20 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/openbao/openbao/sdk/v2/logical"
 
+	"github.com/torstei/bao-acme/internal/acmetest"
 	"github.com/torstei/bao-acme/internal/testcerts"
 )
 
-// testdata/storage-v1 holds entries exactly as the first released storage
-// format (design §5.6) wrote them, one file per storage key. It is frozen:
-// never regenerate it. A format change adds a new directory beside it.
+// testdata/storage-v1 holds entries exactly as storage format 1 (design
+// §5.6) writes them, one file per storage key. A file is frozen once a
+// release has shipped it: never regenerate it. A format change adds a new
+// directory beside this one.
 const storageV1 = "testdata/storage-v1"
 
 func loadFixture(t *testing.T, h *harness, dir string) {
@@ -78,6 +81,58 @@ func TestReadsStorageV1(t *testing.T) {
 	if got := h.ok(logical.ListOperation, "certs/", map[string]any{"covers": "www.example.com"}).Data["keys"]; len(got.([]string)) != 1 {
 		t.Errorf("covers = %v", got)
 	}
+}
+
+func TestReadsStorageV1Account(t *testing.T) {
+	h := newHarness(t)
+	loadFixture(t, h, storageV1)
+	stored := readFixture(t, "config/accounts/example")
+	reg := stored["registration"].(map[string]any)
+
+	read := h.ok(logical.ReadOperation, "config/accounts/example", nil)
+	for field, want := range map[string]any{
+		"directory_url":           stored["directory_url"],
+		"email":                   stored["email"],
+		"key_type":                stored["key_type"],
+		"eab_kid":                 stored["eab_kid"],
+		"eab_hmac_key_set":        true,
+		"terms_of_service_agreed": true,
+		"registered":              true,
+		"account_url":             reg["account_url"],
+		"status":                  reg["status"],
+	} {
+		if got := read.Data[field]; !reflect.DeepEqual(got, want) {
+			t.Errorf("%s = %v, want %v", field, got, want)
+		}
+	}
+	client, err := h.storedAccount("example").client()
+	if err != nil || client.Key == nil || len(client.CABundle) != 1 || client.AccountURL != reg["account_url"] {
+		t.Errorf("stored account does not load: %+v, %v", client, err)
+	}
+}
+
+func TestWritesStorageV1AccountFields(t *testing.T) {
+	h := newHarness(t)
+	p := acmetest.Start(t, acmetest.Options{EABKeys: map[string]string{testEABKeyID: testEABHMAC}})
+	h.ok(logical.CreateOperation, "config/accounts/example", map[string]any{
+		"directory_url":           p.DirectoryURL,
+		"email":                   "ops@example.com",
+		"ca_bundle":               p.CAPEM,
+		"terms_of_service_agreed": true,
+		"eab_kid":                 testEABKeyID,
+		"eab_hmac_key":            testEABHMAC,
+	})
+	h.ok(logical.UpdateOperation, "config/accounts/example/register", nil)
+
+	entry, err := h.storage.Get(context.Background(), "config/accounts/example")
+	if err != nil || entry == nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(entry.Value, &got); err != nil {
+		t.Fatal(err)
+	}
+	missingFields(t, "config/accounts/example", readFixture(t, "config/accounts/example"), got)
 }
 
 func TestWritesStorageV1Fields(t *testing.T) {

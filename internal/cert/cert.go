@@ -54,7 +54,7 @@ type Description struct {
 func Parse(fullchain, privkey string, now time.Time) (*Bundle, error) {
 	certs, err := parseCertificates(fullchain)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fullchain: %w", err)
 	}
 	key, err := parsePrivateKey(privkey)
 	if err != nil {
@@ -77,9 +77,9 @@ func Parse(fullchain, privkey string, now time.Time) (*Bundle, error) {
 		return nil, fmt.Errorf("certificate is not valid before %s", leaf.NotBefore.UTC().Format(time.RFC3339))
 	}
 
-	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
+	keyPEM, err := EncodeKey(key)
 	if err != nil {
-		return nil, fmt.Errorf("encoding private key: %w", err)
+		return nil, err
 	}
 
 	return &Bundle{
@@ -88,7 +88,7 @@ func Parse(fullchain, privkey string, now time.Time) (*Bundle, error) {
 		Key:           key,
 		CertPEM:       encodeCertificates(certs[:1]),
 		ChainPEM:      encodeCertificates(certs[1:]),
-		KeyPEM:        string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})),
+		KeyPEM:        keyPEM,
 	}, nil
 }
 
@@ -165,19 +165,19 @@ func parseCertificates(fullchain string) ([]*x509.Certificate, error) {
 			break
 		}
 		if block.Type != "CERTIFICATE" {
-			return nil, fmt.Errorf("fullchain contains a %q block; only CERTIFICATE blocks are allowed", block.Type)
+			return nil, fmt.Errorf("contains a %q block; only CERTIFICATE blocks are allowed", block.Type)
 		}
 		c, err := x509.ParseCertificate(block.Bytes)
 		if err != nil {
-			return nil, fmt.Errorf("parsing certificate %d in fullchain: %w", len(certs), err)
+			return nil, fmt.Errorf("parsing certificate %d: %w", len(certs), err)
 		}
 		certs = append(certs, c)
 	}
 	if len(bytes.TrimSpace(rest)) > 0 {
-		return nil, errors.New("fullchain contains data that is not PEM")
+		return nil, errors.New("contains data that is not PEM")
 	}
 	if len(certs) == 0 {
-		return nil, errors.New("fullchain contains no certificate")
+		return nil, errors.New("contains no certificate")
 	}
 	return certs, nil
 }

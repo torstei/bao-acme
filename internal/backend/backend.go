@@ -11,6 +11,8 @@ import (
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/helper/locksutil"
 	"github.com/openbao/openbao/sdk/v2/logical"
+
+	"github.com/torstei/bao-acme/internal/acmeclient"
 )
 
 const operationPrefix = "bao-acme"
@@ -24,6 +26,7 @@ func Factory(ctx context.Context, conf *logical.BackendConfig) (logical.Backend,
 	if err := b.Setup(ctx, conf); err != nil {
 		return nil, err
 	}
+	acmeclient.SetLogger(b.Logger())
 	return b, nil
 }
 
@@ -44,7 +47,7 @@ func New() *backend {
 		Help:        strings.TrimSpace(backendHelp),
 		BackendType: logical.TypeLogical,
 		PathsSpecial: &logical.Paths{
-			SealWrapStorage: []string{"certs/"},
+			SealWrapStorage: []string{"certs/", "config/"},
 		},
 		Paths: []*framework.Path{
 			pathCertsList(b),
@@ -54,6 +57,9 @@ func New() *backend {
 			pathCertRollback(b),
 			pathCertDestroy(b),
 			pathCert(b),
+			pathAccountsList(b),
+			pathAccountRegister(b),
+			pathAccount(b),
 		},
 		RunningVersion: Version,
 	}
@@ -70,4 +76,7 @@ versioned, together with a description it extracts from each certificate.
 
 Write a certificate to certs/<name>/import. Read it, key included, from
 certs/<name>, and read its description alone from certs/<name>/info.
+
+Configure ACME accounts at config/accounts/<name> and register them with
+config/accounts/<name>/register.
 `
