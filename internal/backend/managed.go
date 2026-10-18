@@ -472,6 +472,7 @@ func (b *backend) registeredAccount(ctx context.Context, s logical.Storage, name
 		Status:         reg.Status,
 		Contact:        reg.Contact,
 		TermsOfService: reg.TermsOfService,
+		CAAIdentities:  reg.CAAIdentities,
 		RegisteredTime: now,
 		CheckedTime:    now,
 	}

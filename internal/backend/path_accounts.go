@@ -42,9 +42,25 @@ type accountRegistration struct {
 	Status         string    `json:"status"`
 	Contact        []string  `json:"contact,omitempty"`
 	TermsOfService string    `json:"terms_of_service,omitempty"`
+	CAAIdentities  []string  `json:"caa_identities,omitempty"`
 	RegisteredTime time.Time `json:"registered_time"`
 	CheckedTime    time.Time `json:"checked_time"`
 }
+
+// caaRecords are the CAA property values (RFC 8659, with RFC 8657's
+// accounturi and validationmethods) that restrict issuance to this account
+// and to DNS-01, one issue and one issuewild per CA identity.
+func (r *accountRegistration) caaRecords() []string {
+	var out []string
+	for _, id := range r.CAAIdentities {
+		value := fmt.Sprintf("%s; accounturi=%s; validationmethods=dns-01", id, r.AccountURL)
+		out = append(out, fmt.Sprintf("0 issue %q", value), fmt.Sprintf("0 issuewild %q", value))
+	}
+	return out
+}
+
+const caaNote = "Publish these as CAA records on each name, or on a parent domain, to allow only this account to issue, and only through DNS-01. " +
+	"Any other ACME account is then refused, certbot's included: while it is still a fallback, also publish an issue record with its account URL (the \"uri\" in its regr.json)."
 
 func accountKey(name string) string {
 	return "config/accounts/" + name
@@ -220,6 +236,12 @@ func accountData(a *accountEntry) map[string]any {
 		data["terms_of_service"] = r.TermsOfService
 		data["registered_time"] = r.RegisteredTime
 		data["checked_time"] = r.CheckedTime
+		data["caa_records"] = r.caaRecords()
+		if len(r.CAAIdentities) > 0 {
+			data["caa_note"] = caaNote
+		} else {
+			data["caa_note"] = "The CA's directory names no CAA identities, so no CAA records can be given for it."
+		}
 	}
 	return data
 }
@@ -384,6 +406,7 @@ func (b *backend) handleAccountRegister(ctx context.Context, req *logical.Reques
 	a.Registration.Status = reg.Status
 	a.Registration.Contact = reg.Contact
 	a.Registration.TermsOfService = reg.TermsOfService
+	a.Registration.CAAIdentities = reg.CAAIdentities
 	a.Registration.CheckedTime = now
 	if err := putJSON(ctx, req.Storage, accountKey(name), a); err != nil {
 		return nil, err

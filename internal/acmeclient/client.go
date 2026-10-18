@@ -42,6 +42,9 @@ type Registration struct {
 	Status         string
 	Contact        []string
 	TermsOfService string
+	// CAAIdentities are the issuer domain names the CA recognises in CAA
+	// records, such as "letsencrypt.org".
+	CAAIdentities []string
 }
 
 // Directory is what the CA's directory says about itself.
@@ -198,5 +201,6 @@ func registrationOf(acct *acme.ExtendedAccount, dir *Directory) *Registration {
 		Status:         acct.Status,
 		Contact:        acct.Contact,
 		TermsOfService: dir.TermsOfService,
+		CAAIdentities:  dir.CAAIdentities,
 	}
 }

@@ -106,6 +106,9 @@ func TestReadsStorageV1Account(t *testing.T) {
 			t.Errorf("%s = %v, want %v", field, got, want)
 		}
 	}
+	if recs, _ := read.Data["caa_records"].([]string); len(recs) != 2 || !strings.Contains(recs[0], "accounturi="+reg["account_url"].(string)) {
+		t.Errorf("caa_records = %v", read.Data["caa_records"])
+	}
 	client, err := h.storedAccount("example").client()
 	if err != nil || client.Key == nil || len(client.CABundle) != 1 || client.AccountURL != reg["account_url"] {
 		t.Errorf("stored account does not load: %+v, %v", client, err)

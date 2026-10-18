@@ -1,22 +1,25 @@
 {
-  "directory_url": "https://127.0.0.1:42907/dir",
+  "directory_url": "https://127.0.0.1:36631/dir",
   "email": "ops@example.com",
   "key_type": "ecdsa-p256",
-  "private_key": "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg8TB+di/stkw0lvsM\nKoPpXljUMhSifAGa4u7uwFJqOWihRANCAASFWiYmWPvC6CsE2DQJ4W8qgq0ZXnF/\nfE7r9jcu2FoXDqR4k0jVdVl8WcMV0+LP9i3KCNOUij+ivDyztmA8y4O7\n-----END PRIVATE KEY-----\n",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgsgeS6QbsD4xFm3zU\nMUu9qgeM9OXiokJ6DLjmH18RyOKhRANCAATXLo4gh4otLrO1lEhh6beYvIzFkWF5\nbN4BE4S01URS4EAD7hQj+kMu/a1UPl95c5PLOA1Fyj7ZJuMwIz/Tvc6D\n-----END PRIVATE KEY-----\n",
   "eab_kid": "kid-1",
   "eab_hmac_key": "zWNDZM6eQGHWpSRTPal5eIUYFTu7EajVIoguysqZ9wG44nMEtx3MUAsUDkMTQ12W",
   "ca_bundle": "-----BEGIN CERTIFICATE-----\nMIIDSDCCAjCgAwIBAgIQEP/md970HysdBTpuzDOf0DANBgkqhkiG9w0BAQsFADAS\nMRAwDgYDVQQKEwdBY21lIENvMCAXDTcwMDEwMTAwMDAwMFoYDzIwODQwMTI5MTYw\nMDAwWjASMRAwDgYDVQQKEwdBY21lIENvMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A\nMIIBCgKCAQEAxcl69ROJdxjN+MJZnbFrYxyQooADCsJ6VDkuMyNQIix/Hk15Nk/u\nFyBX1Me++aEpGmY3RIY4fUvELqT/srvAHsTXwVVSttMcY8pcAFmXSqo3x4MuUTG/\njCX3Vftj0r3EM5M8ImY1rzA/jqTTLJg00rD+DmuDABcqQvoXw/RV8w1yTRi5BPoH\nDFD/AWTt/YgMvk1l2Yq/xI8VbMUIpjBoGXxWsSevQ5i2s1mk9/yZzu0Ysp1tTlzD\nqOPa4ysFjBitdXiwfxjxtv5nXqOCP5rheKO0sWLk0fetMp1OV5JSJMAJw6c2ZMkl\nU2WMqAEpRjdE/vHfIuNg+yGaRRqI07NZRQIDAQABo4GXMIGUMA4GA1UdDwEB/wQE\nAwICpDATBgNVHSUEDDAKBggrBgEFBQcDATAPBgNVHRMBAf8EBTADAQH/MB0GA1Ud\nDgQWBBQR5QIzmacmw78ZI1C4MXw7Q0wJ1jA9BgNVHREENjA0ggtleGFtcGxlLmNv\nbYINKi5leGFtcGxlLmNvbYcEfwAAAYcQAAAAAAAAAAAAAAAAAAAAATANBgkqhkiG\n9w0BAQsFAAOCAQEACrRNgiioUDzxQftd0fwOa6iRRcPampZRDtuaF68yNHoNWbOu\nLUwc05eOWxRq3iABGSk2xg+FXM3DDeW4HhAhCFptq7jbVZ+4Jj6HeJG9mYRatAxR\nY/dEpa0D0EHhDxxVg6UzKOXB355n0IetGE/aWvyTV9SiDs6QsaC57Q9qq1/mitx5\n2GFBoapol9L5FxCc77bztzK8CpLujkBi25Vk6GAFbl27opLfpyxkM+rX/T6MXCPO\n6/YBacNZ7ff1/57Etg4i5mNA6ubCpuc4Gi9oYqCNNohftr2lkJr7REdDR6OW0lsL\nrF7r4gUnKeC7mYIH1zypY7laskopiLFAfe96Kg==\n-----END CERTIFICATE-----\n",
   "terms_of_service_agreed": true,
-  "created_time": "2026-10-18T13:45:56.361907871Z",
+  "created_time": "2026-10-18T15:21:35.547513022Z",
   "registration": {
-    "account_url": "https://127.0.0.1:42907/my-account/6bb1a731802d6b62",
+    "account_url": "https://127.0.0.1:36631/my-account/545e63f110a4b010",
     "status": "valid",
     "contact": [
       "mailto:ops@example.com"
     ],
     "terms_of_service": "data:text/plain,Do%20what%20thou%20wilt",
-    "registered_time": "2026-10-18T13:45:56.362056023Z",
-    "checked_time": "2026-10-18T13:45:56.362056023Z"
+    "caa_identities": [
+      "pebble.letsencrypt.org"
+    ],
+    "registered_time": "2026-10-18T15:21:35.547665089Z",
+    "checked_time": "2026-10-18T15:21:35.547665089Z"
   }
 }
 

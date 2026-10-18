@@ -133,7 +133,8 @@ and the refusal names the CA's terms of service URL. Registering on first use co
 4.1.4. `directory_url`, `key_type` and EAB cannot change once they are bound: `key_type` from
 creation, the others from registration. Changing them means a new account.
 
-4.1.5. Reads show `eab_hmac_key_set`, never the key.
+4.1.5. Reads show `eab_hmac_key_set`, never the key. A registered account's read also shows
+`caa_records` and `caa_note` (§7.3.1).
 
 4.1.6. Deleting an account removes it from the engine only. It is not deactivated at the CA, and
 the response warns that its key is gone.
@@ -550,6 +551,24 @@ as narrow as those on root-level operations.
 ACME account and to `dns-01`. Then even someone who can change DNS records elsewhere cannot get a
 certificate through another account. The engine can show the exact CAA record to publish for each
 account.
+
+7.3.1. *Phase 2:* a registered account's read shows `caa_records`: for each issuer domain name the
+CA lists in its directory (`caaIdentities`, for example `letsencrypt.org`), an `issue` and an
+`issuewild` value:
+
+```
+0 issue "letsencrypt.org; accounturi=https://acme-v02.api.letsencrypt.org/acme/acct/123; validationmethods=dns-01"
+0 issuewild "letsencrypt.org; accounturi=https://acme-v02.api.letsencrypt.org/acme/acct/123; validationmethods=dns-01"
+```
+
+The identities are stored at registration. A CA that lists none gets no records, and a note
+saying so.
+
+7.3.2. CAA applies to the name and everything below it, unless a subdomain has CAA records of its
+own, so one pair on the zone apex usually covers a zone. Publishing it shuts out every other ACME
+account, certbot's included. During the migration (§8), add a further `issue` record with
+certbot's account URL (the `uri` in its `regr.json`), or publish the pair only after certbot is
+retired. With `dns-persist-01` (#20), `validationmethods` would have to name that method too.
 
 7.4. **No key leaves the engine except through `certs/<name>` reads.** Account keys are never
 exported. Private keys are generated inside the engine, and `reuse_key` keeps a key across renewals
