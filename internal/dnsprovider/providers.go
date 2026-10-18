@@ -115,7 +115,10 @@ func init() {
 				TTL:                orDefault(c.TTL, dns01.DefaultTTL),
 				PropagationTimeout: orDefault(c.PropagationTimeout, dns01.DefaultPropagationTimeout),
 				PollingInterval:    orDefault(c.PollingInterval, dns01.DefaultPollingInterval),
-				SequenceInterval:   dns01.DefaultPropagationTimeout,
+				// lego sleeps this long between challenges for the same name
+				// (a wildcard and its apex). The propagation check already
+				// waits for each record, so a short pause is enough.
+				SequenceInterval: orDefault(c.PollingInterval, dns01.DefaultPollingInterval),
 			})
 		},
 	})

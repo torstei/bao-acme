@@ -358,6 +358,38 @@ func TestIntegration(t *testing.T) {
 		}
 	})
 
+	t.Run("background issuance records its outcome", func(t *testing.T) {
+		writes := map[string]map[string]any{
+			"config/accounts/unreachable": {
+				"directory_url":           "https://127.0.0.1:1/directory",
+				"terms_of_service_agreed": true,
+			},
+			"config/dns/bind": {"provider": "dnsupdate", "nameserver": "127.0.0.1"},
+			"certs/background": {
+				"names":        "www.example.test",
+				"account":      "unreachable",
+				"dns_provider": "bind",
+			},
+		}
+		for _, path := range []string{"config/accounts/unreachable", "config/dns/bind", "certs/background"} {
+			if _, err := c.client.Logical().Write(mount+"/"+path, writes[path]); err != nil {
+				t.Fatalf("%s: %v", path, err)
+			}
+		}
+
+		var issuance map[string]any
+		for range 100 {
+			issuance = read(t, c.client, "certs/background/info").Data["issuance"].(map[string]any)
+			if fmt.Sprint(issuance["failures"]) == "1" {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		if fmt.Sprint(issuance["failures"]) != "1" || !strings.Contains(fmt.Sprint(issuance["last_error"]), "127.0.0.1:1") {
+			t.Fatalf("issuance = %v", issuance)
+		}
+	})
+
 	t.Run("data survives a plugin reload", func(t *testing.T) {
 		if _, err := c.client.Sys().ReloadPluginWithContext(ctx, &api.ReloadPluginInput{Plugin: pluginName}); err != nil {
 			t.Fatalf("reload: %v", err)

@@ -25,6 +25,8 @@ type Options struct {
 	EABKeys map[string]string
 	// Log, when set, receives Pebble's log.
 	Log io.Writer
+	// Resolver, as host:port, is where Pebble looks up DNS-01 records.
+	Resolver string
 }
 
 // Pebble is a running server.
@@ -40,8 +42,10 @@ type Pebble struct {
 // Start runs Pebble until the test ends.
 func Start(t testing.TB, opts Options) *Pebble {
 	t.Helper()
-	// Pebble rejects a share of nonces by default to exercise client retries.
+	// Pebble rejects a share of nonces by default to exercise client retries,
+	// and waits before each validation.
 	t.Setenv("PEBBLE_WFE_NONCEREJECT", "0")
+	t.Setenv("PEBBLE_VA_NOSLEEP", "1")
 
 	out := opts.Log
 	if out == nil {
@@ -53,7 +57,7 @@ func Start(t testing.TB, opts Options) *Pebble {
 	authority := ca.New(logger, store, "", "ecdsa", 0, 1, map[string]ca.Profile{
 		"default": {Description: "default"},
 	})
-	validator := va.New(logger, 0, 0, false, "", store)
+	validator := va.New(logger, 0, 0, false, opts.Resolver, store)
 	for id, key := range opts.EABKeys {
 		if err := store.AddExternalAccountKeyByID(id, key); err != nil {
 			t.Fatal(err)

@@ -23,6 +23,10 @@ type certMeta struct {
 	CurrentVersion int `json:"current_version"`
 	LatestVersion  int `json:"latest_version"`
 	MaxVersions    int `json:"max_versions"`
+
+	// Managed is set for a certificate the engine obtains itself.
+	Managed  *managedSpec   `json:"managed,omitempty"`
+	Issuance *issuanceState `json:"issuance,omitempty"`
 }
 
 type identity struct {
@@ -165,4 +169,31 @@ func deleteCert(ctx context.Context, s logical.Storage, name string) error {
 		}
 	}
 	return nil
+}
+
+// writeVersion stores bundle as the next version and makes it current. The
+// caller holds the certificate's lock and passes its meta, which is updated.
+func writeVersion(ctx context.Context, s logical.Storage, name string, m *certMeta, bundle *cert.Bundle, source string, by *identity, now time.Time) (*certVersion, error) {
+	v := &certVersion{
+		Version:     m.LatestVersion + 1,
+		CreatedTime: now,
+		Source:      source,
+		ImportedBy:  by,
+		Description: bundle.Describe(),
+		Certificate: bundle.CertPEM,
+		Chain:       bundle.ChainPEM,
+		Privkey:     bundle.KeyPEM,
+	}
+	if err := putJSON(ctx, s, versionKey(name, v.Version), v); err != nil {
+		return nil, err
+	}
+	m.LatestVersion = v.Version
+	m.CurrentVersion = v.Version
+	if err := putJSON(ctx, s, metaKey(name), m); err != nil {
+		return nil, err
+	}
+	if err := prune(ctx, s, name, m); err != nil {
+		return nil, err
+	}
+	return v, nil
 }

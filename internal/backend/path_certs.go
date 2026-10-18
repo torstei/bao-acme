@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/openbao/openbao/sdk/v2/framework"
@@ -52,12 +53,53 @@ func pathCert(b *backend) *framework.Path {
 			OperationPrefix: operationPrefix,
 			OperationSuffix: "certificate",
 		},
-		Fields: map[string]*framework.FieldSchema{"name": nameField()},
+		Fields: map[string]*framework.FieldSchema{
+			"name": nameField(),
+			"names": {
+				Type:        framework.TypeCommaStringSlice,
+				Description: "DNS names for a managed certificate; wildcards allowed as the leftmost label.",
+			},
+			"key_type": {
+				Type:        framework.TypeString,
+				Description: fmt.Sprintf("Key type for a managed certificate: %s. Default %s.", strings.Join(cert.KeyTypes, ", "), defaultCertKeyType),
+			},
+			"account": {
+				Type:        framework.TypeString,
+				Description: "ACME account (config/accounts/<account>) for a managed certificate.",
+			},
+			"dns_provider": {
+				Type:        framework.TypeString,
+				Description: "DNS provider (config/dns/<name>) for a managed certificate's DNS-01 challenges.",
+			},
+			"max_versions": {
+				Type:        framework.TypeInt,
+				Description: fmt.Sprintf("Number of versions to keep. Defaults to %d for a new certificate; unchanged if omitted.", defaultMaxVersions),
+			},
+		},
+		ExistenceCheck: b.certExists,
 		Operations: map[logical.Operation]framework.OperationHandler{
 			logical.ReadOperation:   &framework.PathOperation{Callback: b.handleRead},
+			logical.CreateOperation: &framework.PathOperation{Callback: b.handleDefine},
+			logical.UpdateOperation: &framework.PathOperation{Callback: b.handleDefine},
 			logical.DeleteOperation: &framework.PathOperation{Callback: b.handleDelete},
 		},
-		HelpSynopsis: "Read the current version of a certificate, private key included, or delete the certificate and all its versions.",
+		HelpSynopsis: "Read the current version of a certificate, private key included; write to define a managed certificate that the engine obtains over ACME; or delete the certificate and all its versions.",
+	}
+}
+
+func pathCertUnmanage(b *backend) *framework.Path {
+	return &framework.Path{
+		Pattern: "certs/" + framework.GenericNameRegex("name") + "/unmanage",
+		DisplayAttrs: &framework.DisplayAttributes{
+			OperationPrefix: operationPrefix,
+			OperationVerb:   "unmanage",
+			OperationSuffix: "certificate",
+		},
+		Fields: map[string]*framework.FieldSchema{"name": nameField()},
+		Operations: map[logical.Operation]framework.OperationHandler{
+			logical.UpdateOperation: &framework.PathOperation{Callback: b.handleUnmanage},
+		},
+		HelpSynopsis: "Stop obtaining the certificate over ACME. Its versions stay, and it can be imported into again.",
 	}
 }
 
@@ -263,7 +305,7 @@ func (b *backend) infoResponse(ctx context.Context, s logical.Storage, name stri
 	if err != nil {
 		return nil, err
 	}
-	if current == nil {
+	if current == nil && m.CurrentVersion != 0 {
 		return nil, fmt.Errorf("certificate %q: current version %d is missing", name, m.CurrentVersion)
 	}
 
@@ -289,13 +331,43 @@ func (b *backend) infoResponse(ctx context.Context, s logical.Storage, name stri
 		versions[strconv.Itoa(n)] = entry
 	}
 
-	data := versionData(current)
+	data := map[string]any{}
+	if current != nil {
+		data = versionData(current)
+		data["destroyed"] = current.destroyed()
+	}
 	data["current_version"] = m.CurrentVersion
 	data["latest_version"] = m.LatestVersion
 	data["max_versions"] = m.MaxVersions
 	data["versions"] = versions
-	data["destroyed"] = current.destroyed()
+	data["managed"] = m.Managed != nil
+	if m.Managed != nil {
+		data["definition"] = definitionData(m.Managed)
+		data["issuance"] = issuanceData(m, current, b.now())
+	}
 	return &logical.Response{Data: data}, nil
+}
+
+func definitionData(s *managedSpec) map[string]any {
+	return map[string]any{
+		"names":        s.Names,
+		"key_type":     s.KeyType,
+		"account":      s.Account,
+		"dns_provider": s.DNSProvider,
+		"defined_time": s.DefinedTime,
+	}
+}
+
+func issuanceData(m *certMeta, current *certVersion, now time.Time) map[string]any {
+	data := map[string]any{"needed": needsIssuance(&certMeta{Managed: m.Managed}, current, now)}
+	if st := m.Issuance; st != nil {
+		data["last_attempt_time"] = st.LastAttemptTime
+		data["last_success_time"] = st.LastSuccessTime
+		data["last_error"] = st.LastError
+		data["failures"] = st.Failures
+		data["next_attempt_time"] = st.NextAttemptTime
+	}
+	return data
 }
 
 func versionData(v *certVersion) map[string]any {
@@ -373,28 +445,12 @@ func (b *backend) handleImport(ctx context.Context, req *logical.Request, d *fra
 		m.MaxVersions = maxVersions
 	}
 
-	v := &certVersion{
-		Version:     m.LatestVersion + 1,
-		CreatedTime: now,
-		Source:      sourceImport,
-		Description: desc,
-		Certificate: bundle.CertPEM,
-		Chain:       bundle.ChainPEM,
-		Privkey:     bundle.KeyPEM,
-	}
+	var by *identity
 	if req.EntityID != "" || req.DisplayName != "" {
-		v.ImportedBy = &identity{EntityID: req.EntityID, DisplayName: req.DisplayName}
+		by = &identity{EntityID: req.EntityID, DisplayName: req.DisplayName}
 	}
-	if err := putJSON(ctx, req.Storage, versionKey(name, v.Version), v); err != nil {
-		return nil, err
-	}
-
-	m.LatestVersion = v.Version
-	m.CurrentVersion = v.Version
-	if err := putJSON(ctx, req.Storage, metaKey(name), m); err != nil {
-		return nil, err
-	}
-	if err := prune(ctx, req.Storage, name, m); err != nil {
+	v, err := writeVersion(ctx, req.Storage, name, m, bundle, sourceImport, by, now)
+	if err != nil {
 		return nil, err
 	}
 	return importResponse(v, true), nil
@@ -437,6 +493,9 @@ func (b *backend) handleRollback(ctx context.Context, req *logical.Request, d *f
 	}
 	if !b.now().Before(v.Description.NotAfter) {
 		return logical.ErrorResponse("version %d expired at %s", n, v.Description.NotAfter.Format(time.RFC3339)), logical.ErrInvalidRequest
+	}
+	if m.Managed != nil && !m.Managed.matches(v) {
+		return logical.ErrorResponse("version %d does not match the managed definition, so the engine would replace it at once; unmanage the certificate first", n), logical.ErrInvalidRequest
 	}
 
 	m.CurrentVersion = n
