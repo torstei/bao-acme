@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -41,6 +42,10 @@ type Order struct {
 	// Replaces, when set, is the certificate this order renews, so the CA
 	// can link them (RFC 9773). It must be one this account was issued.
 	Replaces *x509.Certificate
+	// OnOrderCreated, when set, is called with the order's URL as soon as
+	// the CA has created it, so the order can be found again after a
+	// restart.
+	OnOrderCreated func(orderURL string)
 }
 
 // Obtain orders a certificate over DNS-01, publishing challenge records
@@ -59,7 +64,17 @@ func Obtain(ctx context.Context, a *Account, provider challenge.Provider, order 
 		return nil, ErrNoResolvers
 	}
 
-	client, _, err := newClient(a)
+	var wraps []func(http.RoundTripper) http.RoundTripper
+	if order.OnOrderCreated != nil {
+		newOrderURL, err := newOrderURL(a)
+		if err != nil {
+			return nil, err
+		}
+		wraps = append(wraps, func(next http.RoundTripper) http.RoundTripper {
+			return &orderObserver{next: next, newOrderURL: newOrderURL, created: order.OnOrderCreated}
+		})
+	}
+	client, _, err := newClient(a, wraps...)
 	if err != nil {
 		return nil, err
 	}
@@ -148,4 +163,59 @@ func Revoke(ctx context.Context, a *Account, certPEM []byte) error {
 		return err
 	}
 	return client.Certificate.Revoke(ctx, certPEM)
+}
+
+func newOrderURL(a *Account) (string, error) {
+	core, err := api.New(a.Network.HTTPClient(a.CABundle), userAgent, a.DirectoryURL, a.AccountURL, a.Key)
+	if err != nil {
+		return "", fmt.Errorf("ACME directory %s: %w", a.DirectoryURL, err)
+	}
+	return core.GetDirectory().NewOrderURL, nil
+}
+
+// orderObserver reports the Location of a successful newOrder request.
+type orderObserver struct {
+	next        http.RoundTripper
+	newOrderURL string
+	created     func(string)
+}
+
+func (o *orderObserver) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := o.next.RoundTrip(req)
+	if err == nil && req.Method == http.MethodPost && req.URL.String() == o.newOrderURL && resp.StatusCode == http.StatusCreated {
+		if loc := resp.Header.Get("Location"); loc != "" {
+			o.created(loc)
+		}
+	}
+	return resp, err
+}
+
+// OrderState is what the CA says about an existing order.
+type OrderState struct {
+	Status string
+	// Chain is the issued certificate chain, leaf first, once the order is
+	// valid.
+	Chain []byte
+}
+
+// FetchOrder reads an order this account created and, once it is valid,
+// downloads its certificate.
+func FetchOrder(ctx context.Context, a *Account, orderURL string) (*OrderState, error) {
+	core, err := api.New(a.Network.HTTPClient(a.CABundle), userAgent, a.DirectoryURL, a.AccountURL, a.Key)
+	if err != nil {
+		return nil, fmt.Errorf("ACME directory %s: %w", a.DirectoryURL, err)
+	}
+	order, err := core.Orders.Get(ctx, orderURL)
+	if err != nil {
+		return nil, fmt.Errorf("reading order %s: %w", orderURL, err)
+	}
+	state := &OrderState{Status: order.Status}
+	if order.Status == acme.StatusValid && order.Certificate != "" {
+		raw, err := core.Certificates.Get(ctx, order.Certificate, true)
+		if err != nil {
+			return nil, fmt.Errorf("downloading %s: %w", order.Certificate, err)
+		}
+		state.Chain = raw.Cert
+	}
+	return state, nil
 }

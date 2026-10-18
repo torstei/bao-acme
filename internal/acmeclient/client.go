@@ -10,6 +10,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 
@@ -91,7 +92,11 @@ func (u *user) GetEmail() string                       { return u.a.Email }
 func (u *user) GetRegistration() *acme.ExtendedAccount { return u.reg }
 func (u *user) GetPrivateKey() crypto.Signer           { return u.a.Key }
 
-func newClient(a *Account) (*lego.Client, *user, error) {
+const userAgent = "bao-acme"
+
+// newClient builds a lego client for a. wrap, when set, wraps the HTTP
+// transport, to observe the exchange with the CA.
+func newClient(a *Account, wrap ...func(http.RoundTripper) http.RoundTripper) (*lego.Client, *user, error) {
 	u := &user{a: a}
 	if a.AccountURL != "" {
 		u.reg = &acme.ExtendedAccount{Location: a.AccountURL}
@@ -99,7 +104,10 @@ func newClient(a *Account) (*lego.Client, *user, error) {
 	cfg := lego.NewConfig(u)
 	cfg.CADirURL = a.DirectoryURL
 	cfg.HTTPClient = a.Network.HTTPClient(a.CABundle)
-	cfg.UserAgent = "bao-acme"
+	for _, w := range wrap {
+		cfg.HTTPClient.Transport = w(cfg.HTTPClient.Transport)
+	}
+	cfg.UserAgent = userAgent
 	client, err := lego.NewClient(cfg)
 	if err != nil {
 		return nil, nil, fmt.Errorf("ACME directory %s: %w", a.DirectoryURL, err)

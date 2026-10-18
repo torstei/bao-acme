@@ -198,3 +198,44 @@ func TestRevokedCertificateIsDueAtOnce(t *testing.T) {
 		t.Errorf("window after revocation starts %v, want now", w.Start)
 	}
 }
+
+func TestOrderURLIsReportedAndRecoverable(t *testing.T) {
+	e := newIssuanceEnv(t)
+	ctx := context.Background()
+	p, err := e.provider(t).Build(dnsprovider.Settings{
+		"nameserver": e.dns.Addr, "tsig_key": tsigName, "tsig_secret": tsigSecret,
+	}, dnsprovider.Common{PropagationTimeout: 10 * time.Second, PollingInterval: 100 * time.Millisecond}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, _ := cert.GenerateKey("ecdsa-p256")
+
+	var orderURLs []string
+	chain, err := Obtain(ctx, e.account, p, Order{
+		Names:          []string{"www.example.test"},
+		Key:            key,
+		OnOrderCreated: func(u string) { orderURLs = append(orderURLs, u) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(orderURLs) != 1 || !strings.HasPrefix(orderURLs[0], "https://") {
+		t.Fatalf("order URLs = %v", orderURLs)
+	}
+
+	state, err := FetchOrder(ctx, e.account, orderURLs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Status != "valid" || string(state.Chain) != string(chain) {
+		t.Errorf("fetched order: status %s, same chain %v", state.Status, string(state.Chain) == string(chain))
+	}
+	keyPEM, _ := cert.EncodeKey(key)
+	if _, err := cert.Parse(string(state.Chain), keyPEM, time.Now()); err != nil {
+		t.Errorf("recovered chain does not go with the key: %v", err)
+	}
+
+	if _, err := FetchOrder(ctx, e.account, orderURLs[0]+"-nope"); err == nil {
+		t.Error("fetched an order that does not exist")
+	}
+}

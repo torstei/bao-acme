@@ -174,6 +174,9 @@ func deleteCert(ctx context.Context, s logical.Storage, name string) error {
 	if err := s.Delete(ctx, metaKey(name)); err != nil {
 		return err
 	}
+	if err := s.Delete(ctx, inflightKey(name)); err != nil {
+		return err
+	}
 	for _, n := range versions {
 		if err := s.Delete(ctx, versionKey(name, n)); err != nil {
 			return err

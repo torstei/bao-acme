@@ -1,0 +1,16 @@
+{
+  "current_version": 0,
+  "latest_version": 0,
+  "max_versions": 3,
+  "managed": {
+    "names": [
+      "ordering.example.test",
+      "www.ordering.example.test"
+    ],
+    "key_type": "ecdsa-p256",
+    "account": "le",
+    "dns_provider": "bind",
+    "defined_time": "2026-10-18T15:57:03.15231022Z"
+  }
+}
+

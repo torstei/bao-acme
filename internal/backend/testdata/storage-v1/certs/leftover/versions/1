@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "created_time": "2026-10-18T15:57:06.328976024Z",
+  "source": "import",
+  "imported_by": {
+    "entity_id": "entity-1",
+    "display_name": "approle-importer"
+  },
+  "description": {
+    "names": [
+      "leftover.example.test"
+    ],
+    "common_name": "leftover.example.test",
+    "not_before": "2026-10-18T14:57:06Z",
+    "not_after": "2027-01-16T14:57:06Z",
+    "serial": "8b1cadc8939c7762",
+    "issuer": "Test CA T1",
+    "sha256": "4016994340bc808f14cdf2c0ef1a3f46a4357ae95d2bf75ca2693e8d3e889f74",
+    "spki_sha256": "74c70881c39555d21436b0672decd87e2221fdca15dc0387715245ac0a1418ab",
+    "key_type": "ecdsa-p256"
+  },
+  "certificate": "-----BEGIN CERTIFICATE-----\nMIIBoTCCAUagAwIBAgIJAIscrciTnHdiMAoGCCqGSM49BAMCMB8xEDAOBgNVBAoT\nB1Rlc3QgQ0ExCzAJBgNVBAMTAlQxMB4XDTI2MTAxODE0NTcwNloXDTI3MDExNjE0\nNTcwNlowIDEeMBwGA1UEAxMVbGVmdG92ZXIuZXhhbXBsZS50ZXN0MFkwEwYHKoZI\nzj0CAQYIKoZIzj0DAQcDQgAEFpEQHyfZelzsx16vuwVEDgNZquyknhCAugsk55sH\n0kmW6wjx1IepQWJLIFd4xP2yCb1R5cToLq0QsxXvJLUYnaNqMGgwDgYDVR0PAQH/\nBAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwMBMB8GA1UdIwQYMBaAFGlSkImVV5uD\n3bH7j8XSmVAoLH8gMCAGA1UdEQQZMBeCFWxlZnRvdmVyLmV4YW1wbGUudGVzdDAK\nBggqhkjOPQQDAgNJADBGAiEAsRO7NcRgZWu2Az03CnSEvx1cA4ZiWnu1uHXQ/dXd\nSBsCIQCh0tRNOi4LOB753UScCY6WQtnzK083UseA6bxMrZ1TgQ==\n-----END CERTIFICATE-----\n",
+  "chain": "-----BEGIN CERTIFICATE-----\nMIIBnjCCAUSgAwIBAgIIVbtuAQu2hO0wCgYIKoZIzj0EAwIwJjEQMA4GA1UEChMH\nVGVzdCBDQTESMBAGA1UEAxMJVGVzdCBSb290MB4XDTI2MTAxNzE1NTcwNloXDTMx\nMTAxNzE1NTcwNlowHzEQMA4GA1UEChMHVGVzdCBDQTELMAkGA1UEAxMCVDEwWTAT\nBgcqhkjOPQIBBggqhkjOPQMBBwNCAAS+ffvQOj7pKQsyL2N/n7SjqdT6q9BOR+9V\n65nzaQjcqBAruOLdMZZgQOSPKE+p0YOP7BB+orRSxr9eqEQ3AWY0o2MwYTAOBgNV\nHQ8BAf8EBAMCAgQwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQUaVKQiZVXm4Pd\nsfuPxdKZUCgsfyAwHwYDVR0jBBgwFoAUAtJZTUBhDE6xyO3qe8oi8iFMNjkwCgYI\nKoZIzj0EAwIDSAAwRQIgdiQ2AkdFr9eARzHFzgEc/oCwsaDZkDfcU7Ng+4TCMcEC\nIQDgVw2FmDg09j2xg2Z/fcocDBoEdnuqjtplKPpbSr2KNA==\n-----END CERTIFICATE-----\n",
+  "privkey": "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgXi9F7gaMxUeg49oN\ngO0JBNirQk7gvyLAS7qMYCbWVeehRANCAAQWkRAfJ9l6XOzHXq+7BUQOA1mq7KSe\nEIC6CyTnmwfSSZbrCPHUh6lBYksgV3jE/bIJvVHlxOgurRCzFe8ktRid\n-----END PRIVATE KEY-----\n"
+}
+

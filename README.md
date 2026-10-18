@@ -87,9 +87,14 @@ Managed certificates, obtained and renewed by the engine over ACME with DNS-01:
 | `certs/<name>` | write | `names`, `account`, `dns_provider`, optionally `key_type` (default `ecdsa-p256`). Returns at once; the certificate is obtained in the background. An imported certificate under the same name keeps its versions. |
 | `certs/<name>/info` | read | Adds `definition` and `issuance`: why one is needed, last attempt and success, last error, failures, next attempt. |
 | `certs/<name>/renew` | write | Renew now, ignoring the schedule and any backoff. |
-| `certs/<name>/status` | read | `state` (`valid`, `renewal_due`, `renewing`, `issuing`, `pending`, `failing`, `expired`), `expires_in`, what is running now, and the last ten attempts. Imported certificates too. |
+| `certs/<name>/status` | read | `state` (`valid`, `renewal_due`, `renewing`, `issuing`, `pending`, `failing`, `expired`), `expires_in`, what is running now, the last ten attempts, and any attempt in flight or interrupted. Imported certificates too. |
 | `status` | read | Every certificate's state and expiry, and `counts` per state, in one read. |
 | `certs/<name>/unmanage` | write | Back to import-only, keeping the versions. |
+
+If OpenBao restarts or fails over in the middle of an attempt, the engine afterwards stores a
+certificate the CA had already issued, instead of ordering a new one, and removes the challenge
+records the attempt left. With Cloudflare, leftover records cannot be found again after a restart;
+`status` lists them for removal by hand.
 
 Renewal follows the CA's suggested window (ARI, RFC 9773) where offered, which also picks up a
 CA's request to renew early, and otherwise happens when a third of the lifetime remains.

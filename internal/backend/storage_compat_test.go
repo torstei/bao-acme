@@ -17,6 +17,7 @@ import (
 	"github.com/openbao/openbao/sdk/v2/logical"
 
 	"github.com/torstei/bao-acme/internal/acmetest"
+	"github.com/torstei/bao-acme/internal/cert"
 	"github.com/torstei/bao-acme/internal/testcerts"
 )
 
@@ -306,6 +307,89 @@ func TestWritesStorageV1AttemptHistoryFields(t *testing.T) {
 	for i, a := range want["issuance"].(map[string]any)["attempts"].([]any) {
 		missingFields(t, fmt.Sprintf("certs/history/meta attempt %d", i), a.(map[string]any), got["issuance"].(map[string]any)["attempts"].([]any)[i].(map[string]any))
 	}
+}
+
+func TestReadsStorageV1Inflight(t *testing.T) {
+	h := newHarness(t)
+	loadFixture(t, h, storageV1)
+	ctx := context.Background()
+
+	ordering, err := loadInflight(ctx, h.storage, "ordering")
+	if err != nil || ordering == nil {
+		t.Fatalf("ordering: %+v, %v", ordering, err)
+	}
+	if _, err := cert.ParseKey(ordering.Privkey); err != nil || ordering.OrderURL == "" || len(ordering.Published) != 2 || ordering.Published[1].PresentError == "" {
+		t.Errorf("ordering = %+v, key error %v", ordering, err)
+	}
+	if !inflightDue(ordering, time.Now()) {
+		t.Error("an interrupted order is not due for recovery")
+	}
+
+	s := h.ok(logical.ReadOperation, "certs/leftover/status", nil)
+	published := s.Data["inflight"].(map[string]any)["published"].([]map[string]any)
+	if len(published) != 1 || published[0]["cleanup_error"] == "" {
+		t.Errorf("leftover status = %v", s.Data["inflight"])
+	}
+}
+
+func freshInflight(t *testing.T, e *managedEnv, name string) map[string]any {
+	t.Helper()
+	entry, err := e.storage.Get(context.Background(), inflightKey(name))
+	if err != nil || entry == nil {
+		t.Fatalf("%s: %v", name, err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(entry.Value, &got); err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
+func TestWritesStorageV1InflightFields(t *testing.T) {
+	e := newManagedEnv(t)
+	ctx := context.Background()
+	e.b.issuer.stop()
+
+	e.defineQuietly("ordering", "ordering.example.test", "www.ordering.example.test")
+	if claim, err := e.b.claimIssuance(ctx, e.storage, "ordering"); err != nil || claim == nil {
+		t.Fatalf("claim = %v, %v", claim, err)
+	}
+	dnsEntry, _ := loadDNS(ctx, e.storage, "bind")
+	good, _ := dnsEntry.provider(&networkEntry{})
+	if err := e.b.recording(good, e.storage, "ordering").Present(ctx, "ordering.example.test", "tok1", "tok1.thumb"); err != nil {
+		t.Fatal(err)
+	}
+	dnsEntry.Settings["tsig_secret"] = "d3Jvbmd3cm9uZ3dyb25nd3Jvbmd3cm9uZw=="
+	bad, _ := dnsEntry.provider(&networkEntry{})
+	if err := e.b.recording(bad, e.storage, "ordering").Present(ctx, "www.ordering.example.test", "tok2", "tok2.thumb"); err == nil {
+		t.Fatal("setup: a refused update succeeded")
+	}
+	if err := e.b.updateInflight(ctx, e.storage, "ordering", func(i *inflightEntry) { i.OrderURL = "https://ca.example/order/1" }); err != nil {
+		t.Fatal(err)
+	}
+	got := freshInflight(t, e, "ordering")
+	want := readFixture(t, "certs/ordering/inflight")
+	missingFields(t, "certs/ordering/inflight", want, got)
+	for i, rec := range want["published"].([]any) {
+		missingFields(t, fmt.Sprintf("certs/ordering/inflight published %d", i), rec.(map[string]any), got["published"].([]any)[i].(map[string]any))
+	}
+
+	e.imp("leftover", testcerts.New(t, testcerts.Options{Names: []string{"leftover.example.test"}}))
+	spec := e.defineQuietly("leftover", "leftover.example.test")
+	e.ok(logical.DeleteOperation, "config/dns/bind", nil)
+	if err := putJSON(ctx, e.storage, inflightKey("leftover"), &inflightEntry{
+		StartTime: time.Now().UTC(), DefinedTime: spec.DefinedTime, Reason: "renewal is due", Account: "le", DNSProvider: "bind",
+		Published: []publishedRecord{{Domain: "leftover.example.test", Token: "tok", KeyAuth: "tok.thumb", PublishedTime: time.Now().UTC()}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.b.recover(ctx, e.storage, "leftover"); err != nil {
+		t.Fatal(err)
+	}
+	got = freshInflight(t, e, "leftover")
+	want = readFixture(t, "certs/leftover/inflight")
+	missingFields(t, "certs/leftover/inflight", want, got)
+	missingFields(t, "certs/leftover/inflight published 0", want["published"].([]any)[0].(map[string]any), got["published"].([]any)[0].(map[string]any))
 }
 
 func TestWritesStorageV1Fields(t *testing.T) {

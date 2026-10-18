@@ -1,0 +1,18 @@
+{
+  "start_time": "2026-10-18T15:57:06.327988561Z",
+  "defined_time": "2026-10-18T15:57:06.329295865Z",
+  "reason": "renewal is due, in the CA's suggested window",
+  "account": "le",
+  "dns_provider": "bind",
+  "published": [
+    {
+      "domain": "leftover.example.test",
+      "token": "tok",
+      "key_auth": "tok.thumb",
+      "published_time": "2026-10-18T15:57:06.327988561Z",
+      "cleanup_error": "no DNS provider named \"bind\""
+    }
+  ],
+  "next_cleanup_time": "2026-10-18T16:57:06.329385903Z"
+}
+
