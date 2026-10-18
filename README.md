@@ -39,7 +39,7 @@ and linux/arm64, a `SHA256SUMS` file, and build provenance. Fetch and check it o
 wherever your configuration management builds its packages:
 
 ```sh
-v=v0.3.0
+v=v0.4.0
 curl -LO https://github.com/torstei/bao-acme/releases/download/$v/bao-acme_linux_amd64
 curl -LO https://github.com/torstei/bao-acme/releases/download/$v/SHA256SUMS
 sha256sum -c --ignore-missing SHA256SUMS
@@ -58,8 +58,8 @@ privileged token, and every node registers the same thing:
 plugin_directory = "/opt/openbao/plugins"
 
 plugin "secret" "bao-acme" {
-  command   = "bao-acme-v0.3.0"
-  version   = "v0.3.0"
+  command   = "bao-acme-v0.4.0"
+  version   = "v0.4.0"
   sha256sum = "<the bao-acme_linux_amd64 line of SHA256SUMS>"
 }
 ```
@@ -74,7 +74,7 @@ verify each release when you install it.
 Then, once:
 
 ```sh
-bao secrets enable -path=certificates -plugin-version=v0.3.0 bao-acme
+bao secrets enable -path=certificates -plugin-version=v0.4.0 bao-acme
 ```
 
 To upgrade, install the new binary next to the old one, and add a second `plugin` block for the
@@ -82,7 +82,7 @@ new version. Blocks with the same name and different versions may sit side by si
 `SIGHUP`, then switch the mount and reload:
 
 ```sh
-bao secrets tune -plugin-version=v0.4.0 certificates
+bao secrets tune -plugin-version=v0.5.0 certificates
 bao plugin reload -plugin=bao-acme
 ```
 
