@@ -333,16 +333,18 @@ publish. The engine's boundary and the CA's are the same.
 | `accounts/<account>/register` | write | As before. |
 | `accounts/<account>/dns/` | list | The account's DNS providers. |
 | `accounts/<account>/dns/<provider>` | write, read, delete | A DNS provider, as `config/dns/<name>` was. Usable only by this account's certificates. Delete is refused while a certificate uses it, or an in-flight entry still needs it to remove records. |
-| `accounts/<account>/certs/` | list | The account's certificates, with `covers` as before. |
+| `accounts/<account>/certs/` | list | The account's certificates, with `covers` as before. Found by reading each certificate's owner, which is fine for hundreds of certificates. |
 | `accounts/<account>/certs/<cert>` | write, read, delete | As `certs/<name>` was. A definition takes `names`, `dns_provider` (one of this account's), `key_type` and `reuse_key`; no `account`, since the path gives it. |
 | `accounts/<account>/certs/<cert>/…` | | `import`, `info`, `status`, `versions/<n>`, `rollback`, `destroy`, `renew`, `unmanage`, as before. |
 | `accounts/<account>/status` | read | The account's certificates, as the mount's `status`. |
 | `config/network` | write, read, delete | Unchanged: mount-wide, for the operator. |
 | `status` | read | Unchanged: every account's certificates. |
 
-4.5.4. Certificate and DNS provider names are per account, so two teams can each have a
-certificate called `www`. A DNS key that two accounts both need is entered in both. That is
-duplication, but it makes explicit who can use which credentials.
+4.5.4. Certificate and DNS provider names are unique per mount, not per account: two teams sharing
+a mount cannot both have a certificate called `www`, and use a naming convention such as
+`team-a-www` instead. Writing a name another account owns is refused. A DNS key that two accounts
+both need is entered twice, under two names. That is duplication, but it makes explicit who can use
+which credentials.
 
 4.5.5. `config/accounts/`, `config/dns/` and `certs/` are removed. Nothing has been deployed
 against them, so there is no transition period.
@@ -377,7 +379,8 @@ only its own names, or CAA-pin the other names to their accounts.
 4.5.8. Separate mounts per team remain possible, for anyone who wants each team's accounts,
 network settings and monitoring fully apart.
 
-4.5.9. Storage moves to format 2 (§5.7), and a mount with format 1 data is migrated when it starts.
+4.5.9. The storage stays format 1. Certificates and DNS providers gain an `account` field naming
+their owner (§5.7).
 
 ## 5. Storage
 
@@ -503,31 +506,29 @@ them through the API. Another checks that a fresh write still produces every fie
 a renamed JSON tag fails CI. A new storage format adds a `storage-v2/` beside it, and `storage-v1/`
 stays.
 
-5.7. **Storage format 2 (v0.4.0).** Format 1 keeps accounts, DNS providers and certificates side
-by side. Format 2 puts everything an account owns under it, so the storage mirrors the paths of
-§4.5:
+5.7. **Owners (v0.4.0).** The account-scoped paths of §4.5 keep storage format 1: the keys stay
+where they are, and two entries gain a field.
 
-| Format 1 | Format 2 |
-|---|---|
-| `config/accounts/<account>` | `accounts/<account>/config` |
-| `config/dns/<provider>` | `accounts/<account>/dns/<provider>` |
-| `certs/<cert>/meta`, `…/versions/<n>`, `…/inflight` | `accounts/<account>/certs/<cert>/meta`, `…/versions/<n>`, `…/inflight` |
-| `config/network` | `config/network` |
+5.7.1. A certificate's `certs/<cert>/meta` and a DNS provider's `config/dns/<provider>` gain
+`account`: the owning account's name, as in `accounts/<account>`.
 
-5.7.1. A `storage/version` entry holds `2`; without one, the data is format 1. On mounting, on the
-active node, the engine migrates format 1 data and then writes the version. Each key is copied
-before its old one is deleted, and the version is written last, so a migration cut short is simply
-run again.
+```json
+{ "account": "team-a", "current_version": 2, "latest_version": 2, "max_versions": 3, "managed": { … } }
+```
 
-5.7.2. The migration places each managed certificate under the account its definition names.
-Imported certificates, which had no account, go under an account called `imported`, created with
-no CA settings. Each DNS provider is copied into every account whose certificates use it, and an
-unused one into `imported`, so no credentials are lost. An account with no certificates stays an
-account.
+5.7.2. A name is enough because an account cannot be deleted while it owns certificates or DNS
+providers (§4.5.3), and accounts cannot be renamed. So no entry can point at an account that is
+gone, or at a new account later created under the same name.
 
-5.7.3. The format 1 fixtures stay in `testdata/storage-v1/`. A test migrates them and reads the
-result through the new paths. `testdata/storage-v2/` freezes the new format, under the rules of
-§5.6.4.
+5.7.3. A managed certificate's definition already names its account (`managed.account`). The field
+stays, so format 1 entries read as before, and new writes set it to the same value as `account`.
+When reading, `account` wins, and an entry without one, from v0.3.0 or earlier, belongs to
+`managed.account`. An imported certificate from v0.3.0 or earlier has neither, so no account path
+reaches it; it is still kept, and still counted in the mount's `status`. Such data is
+theoretical: v0.4.0 is the first version meant for use with accounts.
+
+5.7.4. Both fields are additive, so the rules of §5.6.4 hold: the format 1 fixtures stay frozen,
+and new ones record the field.
 
 ## 6. Issuing and renewing (managed certificates)
 
