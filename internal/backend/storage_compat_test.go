@@ -5,6 +5,7 @@ package backend
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -274,6 +275,37 @@ func TestWritesStorageV1ManagedFields(t *testing.T) {
 	e.ok(logical.UpdateOperation, "certs/failing/renew", nil)
 	e.waitFor("failing", "a second failure", func(m *certMeta) bool { return m.Issuance.Failures == 2 })
 	missingFields(t, "certs/failing/meta", readFixture(t, "certs/failing/meta"), freshMeta(t, e, "failing"))
+}
+
+func TestReadsStorageV1AttemptHistory(t *testing.T) {
+	h := newHarness(t)
+	loadFixture(t, h, storageV1)
+
+	s := h.ok(logical.ReadOperation, "certs/history/status", nil)
+	attempts := s.Data["attempts"].([]map[string]any)
+	if len(attempts) != 2 || attempts[0]["outcome"] != "failed" || attempts[0]["error"] == "" ||
+		attempts[1]["outcome"] != "issued" || attempts[1]["version"] != 1 || attempts[1]["duration_seconds"].(float64) <= 0 {
+		t.Errorf("attempts = %v", attempts)
+	}
+	if s.Data["state"] != stateFailing {
+		t.Errorf("state = %v", s.Data["state"])
+	}
+}
+
+func TestWritesStorageV1AttemptHistoryFields(t *testing.T) {
+	e := newManagedEnv(t)
+	e.define("history", "history.example.test")
+	e.waitFor("history", "the certificate and its schedule", func(m *certMeta) bool { return m.CurrentVersion == 1 && m.Renewal != nil })
+	e.ok(logical.DeleteOperation, "config/dns/bind", nil)
+	e.ok(logical.UpdateOperation, "certs/history/renew", nil)
+	e.waitFor("history", "a failed renewal", func(m *certMeta) bool { return m.Issuance.Failures == 1 })
+
+	got := freshMeta(t, e, "history")
+	want := readFixture(t, "certs/history/meta")
+	missingFields(t, "certs/history/meta", want, got)
+	for i, a := range want["issuance"].(map[string]any)["attempts"].([]any) {
+		missingFields(t, fmt.Sprintf("certs/history/meta attempt %d", i), a.(map[string]any), got["issuance"].(map[string]any)["attempts"].([]any)[i].(map[string]any))
+	}
 }
 
 func TestWritesStorageV1Fields(t *testing.T) {

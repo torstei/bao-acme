@@ -1,0 +1,48 @@
+{
+  "current_version": 1,
+  "latest_version": 1,
+  "max_versions": 3,
+  "managed": {
+    "names": [
+      "history.example.test"
+    ],
+    "key_type": "ecdsa-p256",
+    "account": "le",
+    "dns_provider": "bind",
+    "defined_time": "2026-10-18T15:39:53.670843051Z"
+  },
+  "issuance": {
+    "last_attempt_time": "2026-10-18T15:39:54.778138722Z",
+    "last_success_time": "2026-10-18T15:39:54.748505573Z",
+    "last_error": "no DNS provider named \"bind\"",
+    "failures": 1,
+    "next_attempt_time": "2026-10-18T15:40:55.947037257Z",
+    "renew_requested": true,
+    "attempts": [
+      {
+        "start_time": "2026-10-18T15:39:54.778194734Z",
+        "duration_seconds": 0.000092415,
+        "reason": "a renewal was requested",
+        "outcome": "failed",
+        "error": "no DNS provider named \"bind\""
+      },
+      {
+        "start_time": "2026-10-18T15:39:53.670959231Z",
+        "duration_seconds": 1.077532324,
+        "reason": "no certificate yet",
+        "outcome": "issued",
+        "version": 1
+      }
+    ]
+  },
+  "renewal": {
+    "for_sha256": "2fcb4b29a10a853c2b4666ba26e87a6a0b5d2f99029d830d515b1ecbe282e560",
+    "renew_at": "2026-12-16T18:09:06.972172023Z",
+    "source": "ari",
+    "window_start": "2026-12-16T15:39:53Z",
+    "window_end": "2026-12-18T15:39:53Z",
+    "checked_time": "2026-10-18T15:39:54.752793023Z",
+    "next_check_time": "2026-10-18T21:39:54.752793023Z"
+  }
+}
+

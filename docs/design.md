@@ -232,6 +232,29 @@ clearing any backoff. `info.issuance` adds `renew_requested`, and `renewal` for 
 `renew_at`, `source` (`ari` or `default`), `window_start`, `window_end`, `explanation_url`,
 `ari_error`, `checked_time` and `next_check_time`.
 
+4.2.8. *v0.3.0, status:* `certs/<name>/status` sums a certificate up for monitoring, for imported
+and managed certificates alike:
+
+4.2.8.1. `state`, exactly one of `valid`, `renewal_due`, `renewing`, `issuing` (the first
+certificate is being obtained), `pending` (no certificate yet, nothing running), `failing` and
+`expired`. When several apply, the first of `expired`, `renewing`, `failing`, `renewal_due` wins.
+A renewal that is running after earlier failures is therefore `renewing`.
+
+4.2.8.2. `expires_in` in seconds, `not_after`, `version`, `renew_at`, `failures`.
+
+4.2.8.3. `running`, and while a job runs on this node, `running_since` and `running_reason`. A
+job that only checks the renewal schedule does not count as `renewing`. Which step of an order is
+running needs the persisted state machine (#9).
+
+4.2.8.4. The issuance fields of `info`, and `attempts`: the last ten attempts, newest first, with
+`start_time`, `duration_seconds`, `reason`, `outcome` (`issued` or `failed`), `error` and
+`version`. The history survives a change of definition.
+
+4.2.9. `status`, at the mount, gives every certificate's summary (`state`, `expires_in`,
+`not_after`, `renew_at`, `failures`, `running`) and `counts` per state, so one read answers "is
+anything failing or about to expire". It is a separate path from `certs/`, so a monitoring policy
+can grant it alone.
+
 Because the key and the description are on different paths, policies get the split that KV cannot
 give:
 
@@ -455,6 +478,10 @@ get ARI like issued ones, because asking needs no account.
 6.4.6. A renewal names the certificate it replaces (RFC 9773 `replaces`) only when this account
 issued it, because a CA refuses to link certificates across accounts. If the CA answers that the
 certificate was already replaced, lego orders again without it.
+
+6.4.7. A CA may reuse an authorization it validated recently for the same account and name. A
+renewal soon after issuance then needs no DNS-01 challenge, so it succeeds even when the DNS
+provider is misconfigured. Issuing does not prove the DNS provider still works.
 
 6.5. **Failures:** exponential backoff per certificate, within the CA's rate limits. Every failure is
 kept in `status` and in the logs. When renewals keep failing, `info` shows how close the current

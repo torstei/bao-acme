@@ -388,6 +388,16 @@ func TestIntegration(t *testing.T) {
 		if fmt.Sprint(issuance["failures"]) != "1" || !strings.Contains(fmt.Sprint(issuance["last_error"]), "127.0.0.1:1") {
 			t.Fatalf("issuance = %v", issuance)
 		}
+
+		status := read(t, c.client, "certs/background/status").Data
+		attempts, _ := status["attempts"].([]any)
+		if status["state"] != "failing" || len(attempts) != 1 {
+			t.Errorf("status = %v", status)
+		}
+		mountStatus := read(t, c.client, "status").Data
+		if counts := mountStatus["counts"].(map[string]any); fmt.Sprint(counts["failing"]) != "1" {
+			t.Errorf("mount status = %v", mountStatus)
+		}
 	})
 
 	t.Run("data survives a plugin reload", func(t *testing.T) {
