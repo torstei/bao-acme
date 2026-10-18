@@ -376,6 +376,36 @@ of the cluster. Expiry monitoring through `info` covers that.
 API. For a cluster that holds every secret, that is a real change. It should be a deliberate network
 decision, and imports alone need no egress.
 
+7.1.1. **All HTTP egress can go through one proxy, so it can be reviewed.** `config/network` holds
+`proxy_url`, an `http://` or `https://` forward proxy, and `proxy_ca_bundle` for a proxy with its
+own TLS certificate or one that inspects TLS. Credentials in the URL are write-only. When a proxy is
+set, every request the engine makes goes through it, with no direct fallback: the ACME directory,
+orders, ARI, and the DNS providers' APIs. HTTPS uses `CONNECT`, so the proxy sees each host name and
+can allow-list it (for example `acme-v02.api.letsencrypt.org` and `api.domeneshop.no`) without
+seeing the content.
+
+7.1.2. The proxy is the engine's own configuration, not the environment. OpenBao starts a plugin
+with an empty environment plus its own variables, so the server's `HTTPS_PROXY` never reaches the
+plugin. The only route is `bao plugin register -env`, which is process-wide and not visible in the
+engine's configuration. Go also reads the proxy variables only once per process.
+
+7.1.3. Every DNS provider must therefore take an injected HTTP client. lego providers whose typed
+config has no HTTP client field cannot be proxied, and are refused while a proxy is set.
+
+7.1.4. **DNS lookups are not HTTP.** lego finds each name's zone and checks that the TXT record has
+propagated by sending DNS queries, by default directly to the zone's authoritative servers on port
+53. A proxy cannot carry those. `config/network` therefore also takes:
+
+7.1.4.1. `dns_resolvers`: recursive resolvers, such as the site's own, used for every lookup
+instead of the authoritative servers. DNS egress is then one known destination.
+
+7.1.4.2. `propagation_check = false`: skip the check and wait a fixed `propagation_delay`, for when
+no lookups may leave at all.
+
+7.1.5. With a proxy and `dns_resolvers` set, the engine's whole egress is the proxy and the
+resolvers. The CA's validation queries go to the public DNS, not to the cluster, and need nothing
+from it.
+
 7.2. **DNS credentials can obtain certificates.** Whoever controls the DNS credentials, or the
 engine's configuration paths, can get certificates for those names. Policies on `config/` should be
 as narrow as those on root-level operations.
