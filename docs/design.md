@@ -417,6 +417,14 @@ depend on what OpenBao offers.
 
 10.4. Per-name DNS providers for certificates that span zones on different providers.
 
+10.5. What `destroy` means once `reuse_key` exists (phase 3). Each version holds its own copy of
+the key, so destroying one version of a compromised reused key leaves the same key in the others.
+The likely answer is a way to destroy every version with a given `spki_sha256`, which is already
+stored per version, so it needs no format change. OpenBao's PKI engine solved a similar problem
+differently: CA certificates and keys are separate entries (`config/issuer/`, `config/key/`) linked
+by ID, so several issuers can share one key. That suits a CA, but it would split a version across
+entries and lose the single atomic write of §5.1.3.
+
 ## References
 
 1. OpenBao issue #1983, "OpenBao as ACME Client or Proxy": https://github.com/openbao/openbao/issues/1983
