@@ -1,0 +1,15 @@
+{
+  "current_version": 1,
+  "latest_version": 1,
+  "max_versions": 3,
+  "managed": {
+    "names": [
+      "leftover.example.test"
+    ],
+    "key_type": "ecdsa-p256",
+    "account": "le",
+    "dns_provider": "bind",
+    "defined_time": "2026-10-18T15:57:06.329295865Z"
+  }
+}
+

@@ -3,6 +3,7 @@
 package backend
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -151,5 +152,46 @@ func TestAttemptHistoryIsCapped(t *testing.T) {
 	}
 	if len(st.Attempts) != maxAttempts || st.Attempts[0].Version != maxAttempts+4 {
 		t.Errorf("attempts = %d, newest %d", len(st.Attempts), st.Attempts[0].Version)
+	}
+}
+
+func TestStartDuringARunningJobRunsAgain(t *testing.T) {
+	i := newIssuer()
+	t.Cleanup(i.stop)
+	release := make(chan struct{})
+	runs := make(chan int, 3)
+	n := 0
+	fn := func(context.Context) {
+		n++
+		runs <- n
+		if n == 1 {
+			<-release
+		}
+	}
+
+	if !i.start("a", fn) {
+		t.Fatal("first start refused")
+	}
+	<-runs
+	if !i.start("a", fn) || !i.start("a", fn) {
+		t.Fatal("a start during a running job was refused")
+	}
+	close(release)
+	select {
+	case got := <-runs:
+		if got != 2 {
+			t.Fatalf("run %d", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the job did not run again")
+	}
+	time.Sleep(100 * time.Millisecond)
+	select {
+	case got := <-runs:
+		t.Errorf("two starts during one job ran it %d times", got)
+	default:
+	}
+	if i.job("a") != nil {
+		t.Error("job still listed as running")
 	}
 }

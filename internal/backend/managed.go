@@ -4,6 +4,7 @@ package backend
 
 import (
 	"context"
+	"crypto"
 	"crypto/x509"
 	"errors"
 	"fmt"
@@ -216,6 +217,9 @@ type job struct {
 	Since time.Time
 	// Reason is set once the job knows it is issuing, and why.
 	Reason string
+	// again is set when work was asked for while the job ran, too late for
+	// it to see; the job then runs once more.
+	again bool
 }
 
 func newIssuer() *issuer {
@@ -223,25 +227,37 @@ func newIssuer() *issuer {
 	return &issuer{running: map[string]*job{}, ctx: ctx, cancel: cancel}
 }
 
-// start runs fn for name unless it is already running.
+// start runs fn for name, or, if it is already running, has it run once
+// more afterwards. It reports false only once the issuer has stopped.
 func (i *issuer) start(name string, fn func(context.Context)) bool {
 	i.mu.Lock()
 	defer i.mu.Unlock()
-	if i.running[name] != nil || i.ctx.Err() != nil {
+	if i.ctx.Err() != nil {
 		return false
 	}
-	i.running[name] = &job{Since: time.Now().UTC()}
+	if j := i.running[name]; j != nil {
+		j.again = true
+		return true
+	}
+	j := &job{Since: time.Now().UTC()}
+	i.running[name] = j
 	i.wg.Add(1)
 	go func() {
 		defer i.wg.Done()
-		defer func() {
+		for {
+			ctx, cancel := context.WithTimeout(i.ctx, issuanceTimeout)
+			fn(ctx)
+			cancel()
+
 			i.mu.Lock()
-			delete(i.running, name)
+			if !j.again || i.ctx.Err() != nil {
+				delete(i.running, name)
+				i.mu.Unlock()
+				return
+			}
+			j.again, j.Reason = false, ""
 			i.mu.Unlock()
-		}()
-		ctx, cancel := context.WithTimeout(i.ctx, issuanceTimeout)
-		defer cancel()
-		fn(ctx)
+		}
 	}()
 	return true
 }
@@ -281,6 +297,9 @@ func (b *backend) startIssuance(name string) bool {
 }
 
 func (b *backend) maintain(ctx context.Context, s logical.Storage, name string) error {
+	if err := b.recover(ctx, s, name); err != nil {
+		b.Logger().Warn("could not recover an interrupted attempt", "certificate", name, "error", err)
+	}
 	if err := b.refreshSchedule(ctx, s, name); err != nil {
 		b.Logger().Warn("could not update the renewal schedule", "certificate", name, "error", err)
 	}
@@ -378,7 +397,11 @@ func (b *backend) periodic(ctx context.Context, req *logical.Request) error {
 		if err != nil {
 			continue
 		}
-		if needsIssuance(m, current, now) != "" || scheduleStale(m, current, now) {
+		inflight, err := loadInflight(ctx, req.Storage, name)
+		if err != nil {
+			continue
+		}
+		if needsIssuance(m, current, now) != "" || scheduleStale(m, current, now) || inflightDue(inflight, now) {
 			b.startIssuance(name)
 		}
 	}
@@ -397,7 +420,7 @@ func (b *backend) issue(ctx context.Context, s logical.Storage, name string) (bo
 	b.issuer.setReason(name, claim.reason)
 
 	start := b.now().UTC()
-	bundle, issueErr := b.obtain(ctx, s, &claim.spec, claim.replaces)
+	bundle, issueErr := b.obtain(ctx, s, name, claim)
 	attempt := attemptRecord{StartTime: start, DurationSeconds: b.now().Sub(start).Seconds(), Reason: claim.reason}
 	return b.recordIssuance(ctx, s, name, &claim.spec, bundle, issueErr, attempt)
 }
@@ -406,6 +429,8 @@ type issuanceClaim struct {
 	spec     managedSpec
 	reason   string
 	replaces *x509.Certificate
+	key      crypto.Signer
+	keyPEM   string
 }
 
 // claimIssuance records the start of an attempt and returns what to do, or
@@ -424,6 +449,29 @@ func (b *backend) claimIssuance(ctx context.Context, s logical.Storage, name str
 	if reason == "" {
 		return nil, nil
 	}
+	claim := &issuanceClaim{spec: *m.Managed, reason: reason}
+	if claim.key, err = cert.GenerateKey(m.Managed.KeyType); err != nil {
+		return nil, err
+	}
+	if claim.keyPEM, err = cert.EncodeKey(claim.key); err != nil {
+		return nil, err
+	}
+
+	// Written before anything reaches the CA, keeping records an earlier
+	// attempt could not remove.
+	inflight := &inflightEntry{
+		StartTime: now, DefinedTime: m.Managed.DefinedTime, Reason: reason,
+		Account: m.Managed.Account, DNSProvider: m.Managed.DNSProvider, Privkey: claim.keyPEM,
+	}
+	if prev, err := loadInflight(ctx, s, name); err != nil {
+		return nil, err
+	} else if prev != nil {
+		inflight.Published = prev.Published
+	}
+	if err := putJSON(ctx, s, inflightKey(name), inflight); err != nil {
+		return nil, err
+	}
+
 	if m.Issuance == nil {
 		m.Issuance = &issuanceState{}
 	}
@@ -432,7 +480,6 @@ func (b *backend) claimIssuance(ctx context.Context, s logical.Storage, name str
 		return nil, err
 	}
 
-	claim := &issuanceClaim{spec: *m.Managed, reason: reason}
 	// The CA links a renewal to its predecessor only within one account.
 	if current != nil && current.Source == m.Managed.source() && !current.destroyed() {
 		claim.replaces, _ = current.leaf()
@@ -440,7 +487,8 @@ func (b *backend) claimIssuance(ctx context.Context, s logical.Storage, name str
 	return claim, nil
 }
 
-func (b *backend) obtain(ctx context.Context, s logical.Storage, spec *managedSpec, replaces *x509.Certificate) (*cert.Bundle, error) {
+func (b *backend) obtain(ctx context.Context, s logical.Storage, name string, claim *issuanceClaim) (*cert.Bundle, error) {
+	spec := &claim.spec
 	n, err := loadNetwork(ctx, s)
 	if err != nil {
 		return nil, err
@@ -465,19 +513,20 @@ func (b *backend) obtain(ctx context.Context, s logical.Storage, spec *managedSp
 		return nil, err
 	}
 
-	key, err := cert.GenerateKey(spec.KeyType)
+	chain, err := acmeclient.Obtain(ctx, account, b.recording(provider, s, name), acmeclient.Order{
+		Names:    spec.Names,
+		Key:      claim.key,
+		Replaces: claim.replaces,
+		OnOrderCreated: func(orderURL string) {
+			if err := b.updateInflight(context.WithoutCancel(ctx), s, name, func(e *inflightEntry) { e.OrderURL = orderURL }); err != nil {
+				b.Logger().Warn("could not record the order URL", "certificate", name, "error", err)
+			}
+		},
+	})
 	if err != nil {
 		return nil, err
 	}
-	chain, err := acmeclient.Obtain(ctx, account, provider, acmeclient.Order{Names: spec.Names, Key: key, Replaces: replaces})
-	if err != nil {
-		return nil, err
-	}
-	keyPEM, err := cert.EncodeKey(key)
-	if err != nil {
-		return nil, err
-	}
-	bundle, err := cert.Parse(string(chain), keyPEM, b.now())
+	bundle, err := cert.Parse(string(chain), claim.keyPEM, b.now())
 	if err != nil {
 		return nil, fmt.Errorf("the CA's certificate does not validate: %w", err)
 	}
@@ -543,6 +592,12 @@ func (b *backend) recordIssuance(ctx context.Context, s logical.Storage, name st
 	if err != nil {
 		return false, err
 	}
+	now := b.now().UTC()
+	defer func() {
+		if err := finishInflight(context.WithoutCancel(ctx), s, name, now); err != nil {
+			b.Logger().Warn("could not clear the in-flight record", "certificate", name, "error", err)
+		}
+	}()
 	if m == nil || m.Managed == nil || !m.Managed.DefinedTime.Equal(spec.DefinedTime) {
 		if issueErr != nil {
 			return false, issueErr
@@ -553,7 +608,6 @@ func (b *backend) recordIssuance(ctx context.Context, s logical.Storage, name st
 	if m.Issuance == nil {
 		m.Issuance = &issuanceState{}
 	}
-	now := b.now().UTC()
 
 	if issueErr != nil {
 		if errors.Is(issueErr, context.Canceled) {

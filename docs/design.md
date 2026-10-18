@@ -250,6 +250,10 @@ running needs the persisted state machine (#9).
 `start_time`, `duration_seconds`, `reason`, `outcome` (`issued` or `failed`), `error` and
 `version`. The history survives a change of definition.
 
+4.2.8.5. `inflight`, while an attempt runs or after one was interrupted: `start_time`, `reason`,
+`order_url`, `published` (each record's `domain`, `published_time` and `cleanup_error`) and
+`next_cleanup_time` (§6.2.2).
+
 4.2.9. `status`, at the mount, gives every certificate's summary (`state`, `expires_in`,
 `not_after`, `renew_at`, `failures`, `running`) and `counts` per state, so one read answers "is
 anything failing or about to expire". It is a separate path from `certs/`, so a monitoring policy
@@ -350,6 +354,7 @@ wrote, both on upgrade and when restoring an old Raft snapshot.
 | `config/accounts/<name>` | An ACME account: its settings, its key (PKCS #8 PEM), and, once registered, a `registration` object with the account URL, status, contact and terms of service URL. |
 | `config/network` | The proxy URL, credentials included, `proxy_ca_bundle`, and the DNS settings of §7.1.7. Absent means direct connections and the defaults. |
 | `config/dns/<name>` | A DNS provider: `provider`, a `settings` object with its fields, credentials included, and the common timing settings. |
+| `certs/<name>/inflight` | While an attempt runs, or after it was interrupted: the attempt's private key, its definition, the order URL, and the challenge records not yet removed (§6.2.2). |
 
 5.6.2. A `meta` entry:
 
@@ -420,7 +425,8 @@ not block the periodic call.
 6.1.1. *Phase 3:* the periodic function runs every minute and starts an issuance for each
 certificate that needs one (§4.2.2) and is past its backoff. That is also what resumes work after a
 restart or failover: an attempt cut short simply happens again. Each certificate has at most one
-issuance running, and issuances that set lego's process-wide DNS client run one at a time
+job running; work asked for while it runs (a write, `renew`) makes it run once more afterwards,
+so the request is never lost. Each certificate has at most one issuance running, and issuances that set lego's process-wide DNS client run one at a time
 (§7.1.9). An issuance is given 15 minutes. Background work uses the mount's storage view, not a
 request's, and stops when the mount is unmounted or the plugin reloaded.
 
@@ -428,10 +434,34 @@ request's, and stops when the mount is unmounted or the plugin reloaded.
 DNS records published, challenge answered, finalized, downloaded. A failover or restart resumes the
 order instead of starting over. This matters for CA rate limits.
 
-6.2.1. Deferred until after phase 4. lego's `Obtain()` runs a whole order in one call, so
-persisting the steps means using lego's lower-level ACME API instead. Until then, an order
-interrupted by a restart starts over. The CA's reuse of recently validated authorizations keeps
-that cheap.
+6.2.1. *v0.3.0: recovery, not a full state machine.* Persisting every step would mean replacing
+lego's `Obtain()` with the engine's own order flow on lego's lower-level API. A restart in the
+middle of an order costs little, though: a new order is well within the CA's limits, and the CA
+reuses the authorizations it already validated. Two things are really lost, and those are what
+the engine recovers:
+
+6.2.1.1. A certificate the CA issued but the engine never stored, which costs one of the CA's
+duplicate certificates (five a week at Let's Encrypt).
+
+6.2.1.2. Challenge records published but never removed.
+
+6.2.2. An attempt writes `certs/<name>/inflight` before anything reaches the CA. It holds the new
+private key, the definition it is for, and, as they happen, the order URL and each challenge
+record. lego gets the engine's HTTP client, so the order URL is read from the CA's answer to
+`newOrder` without changing lego's flow. Each record is written down before it is published, and
+dropped once removed. A finished attempt deletes the entry.
+
+6.2.3. When a certificate's background job finds an entry left by an attempt that is no longer
+running, it first removes the leftover records through the DNS provider. It then asks the CA for
+the order: if the order is valid, the job downloads its certificate, checks it against the stored
+key, and stores it as the next version, as an attempt "recovered after an interruption". Otherwise
+it drops the entry, and a new order follows if one is due.
+
+6.2.4. A record that cannot be removed is kept, with the error, and retried hourly. `status` shows
+it under `inflight`, but never the key. A record whose publishing failed is dropped if removing it
+also fails, since it most likely never existed. lego's Cloudflare provider keeps the IDs of
+records it created in memory, so after a restart it cannot remove them: those stay visible in
+`status` until removed by hand. Domeneshop and `dnsupdate` find records by name and value.
 
 6.3. **DNS-01 via `lego`'s providers.** `lego` is used as a library, pinned, with 200+ DNS providers,
 including RFC 2136 dynamic updates for self-hosted name servers.

@@ -111,6 +111,28 @@ func (b *backend) handleCertStatus(ctx context.Context, req *logical.Request, d 
 		}
 	}
 	data["attempts"] = attempts
+
+	inflight, err := loadInflight(ctx, req.Storage, name)
+	if err != nil {
+		return nil, err
+	}
+	if inflight != nil {
+		published := []map[string]any{}
+		for _, r := range inflight.Published {
+			published = append(published, map[string]any{
+				"domain":         r.Domain,
+				"published_time": r.PublishedTime,
+				"cleanup_error":  r.CleanupError,
+			})
+		}
+		data["inflight"] = map[string]any{
+			"start_time":        inflight.StartTime,
+			"reason":            inflight.Reason,
+			"order_url":         inflight.OrderURL,
+			"published":         published,
+			"next_cleanup_time": inflight.NextCleanupTime,
+		}
+	}
 	return &logical.Response{Data: data}, nil
 }
 
