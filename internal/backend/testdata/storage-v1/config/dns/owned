@@ -1,0 +1,10 @@
+{
+  "account": "team-a",
+  "provider": "domeneshop",
+  "settings": {
+    "api_secret": "sec",
+    "api_token": "tok"
+  },
+  "created_time": "2026-10-18T19:55:19.014670138Z"
+}
+

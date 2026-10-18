@@ -18,6 +18,8 @@ type harness struct {
 	t       *testing.T
 	b       *backend
 	storage logical.Storage
+	// account is where scoped maps certs/… and config/dns/… paths.
+	account string
 }
 
 func newHarness(t *testing.T) *harness {
@@ -29,14 +31,30 @@ func newHarness(t *testing.T) *harness {
 		t.Fatal(err)
 	}
 	t.Cleanup(b.issuer.stop)
-	return &harness{t: t, b: b, storage: conf.StorageView}
+	h := &harness{t: t, b: b, storage: conf.StorageView, account: "t"}
+	h.ok(logical.CreateOperation, "config/accounts/t", nil)
+	return h
+}
+
+// scoped maps the short paths most tests use onto the harness's account:
+// certs/… to accounts/<account>/certs/…, config/dns/… to
+// accounts/<account>/dns/…. Other paths pass through.
+func (h *harness) scoped(path string) string {
+	prefix := "accounts/" + h.account + "/"
+	switch {
+	case strings.HasPrefix(path, "certs/"):
+		return prefix + path
+	case strings.HasPrefix(path, "config/dns/"):
+		return prefix + "dns/" + strings.TrimPrefix(path, "config/dns/")
+	}
+	return path
 }
 
 func (h *harness) do(op logical.Operation, path string, data map[string]any) (*logical.Response, error) {
 	h.t.Helper()
 	return h.b.HandleRequest(context.Background(), &logical.Request{
 		Operation:   op,
-		Path:        path,
+		Path:        h.scoped(path),
 		Data:        data,
 		Storage:     h.storage,
 		EntityID:    "entity-1",
@@ -251,8 +269,8 @@ func TestDelete(t *testing.T) {
 	h.imp("a", testcerts.New(t, testcerts.Options{}))
 	h.ok(logical.DeleteOperation, "certs/a", nil)
 
-	keys, err := h.storage.List(context.Background(), "")
+	keys, err := h.storage.List(context.Background(), "certs/")
 	if err != nil || len(keys) != 0 {
-		t.Errorf("storage after delete: %v, %v", keys, err)
+		t.Errorf("certificates after delete: %v, %v", keys, err)
 	}
 }

@@ -171,7 +171,7 @@ func TestReplacesOnlyOwnCertificates(t *testing.T) {
 	e := newManagedEnv(t)
 	e.imp("site", testcerts.New(t, testcerts.Options{Names: []string{"site.example.test"}}))
 	e.define("site", "site.example.test")
-	if err := e.b.requestRenewal(context.Background(), e.storage, "site", false); err != nil {
+	if err := e.b.requestRenewal(context.Background(), e.storage, "le", "site", false); err != nil {
 		t.Fatal(err)
 	}
 	claim, err := e.b.claimIssuance(context.Background(), e.storage, "site")
@@ -184,7 +184,7 @@ func TestReplacesOnlyOwnCertificates(t *testing.T) {
 
 	e.define("www", "www.example.test")
 	e.waitFor("www", "the certificate", hasVersion(1))
-	if err := e.b.requestRenewal(context.Background(), e.storage, "www", false); err != nil {
+	if err := e.b.requestRenewal(context.Background(), e.storage, "le", "www", false); err != nil {
 		t.Fatal(err)
 	}
 	e.b.issuer.stop()

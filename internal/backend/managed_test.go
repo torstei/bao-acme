@@ -40,6 +40,7 @@ func newManagedEnv(t *testing.T) *managedEnv {
 		"ca_bundle":               p.CAPEM,
 		"terms_of_service_agreed": true,
 	})
+	h.account = "le"
 	h.ok(logical.UpdateOperation, "config/network", map[string]any{
 		"dns_resolvers":         d.Addr,
 		"dns_propagation_check": "resolvers",
@@ -59,7 +60,6 @@ func (e *managedEnv) define(name string, names ...string) *logical.Response {
 	e.t.Helper()
 	return e.ok(logical.CreateOperation, "certs/"+name, map[string]any{
 		"names":        strings.Join(names, ","),
-		"account":      "le",
 		"dns_provider": "bind",
 	})
 }
@@ -208,7 +208,7 @@ func TestPeriodicResumesAfterRestart(t *testing.T) {
 
 func TestDefineValidation(t *testing.T) {
 	e := newManagedEnv(t)
-	base := map[string]any{"names": "www.example.test", "account": "le", "dns_provider": "bind"}
+	base := map[string]any{"names": "www.example.test", "dns_provider": "bind"}
 	with := func(k string, v any) map[string]any {
 		m := map[string]any{}
 		for kk, vv := range base {
@@ -226,10 +226,9 @@ func TestDefineValidation(t *testing.T) {
 		"IP addresses":             with("names", "192.0.2.1"),
 		"leftmost label":           with("names", "www.*.example.test"),
 		"A-label":                  with("names", "blåbær.example.test"),
-		`no account named "nope"`:  with("account", "nope"),
 		`no DNS provider named`:    with("dns_provider", "nope"),
 		"unsupported key_type":     with("key_type", "dsa-1024"),
-		"account and dns_provider": with("account", nil),
+		"dns_provider is required": with("dns_provider", nil),
 	}
 	for want, data := range cases {
 		e.fails(logical.CreateOperation, "certs/x", data, want)
@@ -237,6 +236,8 @@ func TestDefineValidation(t *testing.T) {
 	if resp, _ := e.do(logical.ReadOperation, "certs/x/info", nil); resp != nil {
 		t.Error("a rejected definition was stored")
 	}
+	e.fails(logical.CreateOperation, "accounts/nope/certs/x", base, `no account named "nope"`)
+	e.fails(logical.CreateOperation, "accounts/t/certs/x", base, `account "t" has no directory_url`)
 }
 
 func TestUnmanage(t *testing.T) {

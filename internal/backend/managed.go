@@ -357,6 +357,9 @@ func (b *backend) ariAccount(ctx context.Context, s logical.Storage, name string
 	if a == nil {
 		return nil, fmt.Errorf("no account named %q", name)
 	}
+	if a.DirectoryURL == "" {
+		return nil, fmt.Errorf("account %q has no directory_url", name)
+	}
 	client, err := a.client()
 	if err != nil {
 		return nil, err
@@ -555,12 +558,12 @@ func (b *backend) obtain(ctx context.Context, s logical.Storage, name string, cl
 	if err != nil {
 		return nil, err
 	}
-	dnsEntry, err := loadDNS(ctx, s, spec.DNSProvider)
+	dnsEntry, _, err := ownedDNS(ctx, s, spec.Account, spec.DNSProvider)
 	if err != nil {
 		return nil, err
 	}
 	if dnsEntry == nil {
-		return nil, fmt.Errorf("no DNS provider named %q", spec.DNSProvider)
+		return nil, fmt.Errorf("account %q has no DNS provider named %q", spec.Account, spec.DNSProvider)
 	}
 	provider, err := dnsEntry.provider(n)
 	if err != nil {
@@ -603,6 +606,9 @@ func (b *backend) registeredAccount(ctx context.Context, s logical.Storage, name
 	}
 	if a == nil {
 		return nil, fmt.Errorf("no account named %q", name)
+	}
+	if a.DirectoryURL == "" {
+		return nil, fmt.Errorf("account %q has no directory_url", name)
 	}
 	client, err := a.client()
 	if err != nil {

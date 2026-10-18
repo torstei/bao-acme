@@ -161,7 +161,7 @@ func TestLeftoverThatCannotBeRemovedIsKeptAndShown(t *testing.T) {
 	e := newManagedEnv(t)
 	e.imp("www", testcerts.New(t, testcerts.Options{Names: []string{"www.example.test"}}))
 	spec := e.defineQuietly("www", "www.example.test")
-	e.ok(logical.DeleteOperation, "config/dns/bind", nil)
+	e.ok(logical.UpdateOperation, "config/dns/bind", map[string]any{"tsig_secret": "d3Jvbmd3cm9uZ3dyb25nd3Jvbmd3cm9uZw=="})
 	if err := putJSON(context.Background(), e.storage, inflightKey("www"), &inflightEntry{
 		StartTime: time.Now().UTC(), DefinedTime: spec.DefinedTime, Account: "le", DNSProvider: "bind",
 		Published: []publishedRecord{{Domain: "www.example.test", Token: "tok", KeyAuth: testKeyAuth, PublishedTime: time.Now().UTC()}},

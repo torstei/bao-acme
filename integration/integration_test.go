@@ -179,7 +179,7 @@ func (c *cluster) tokenFor(policy string) *api.Client {
 
 func importCert(t *testing.T, client *api.Client, name string, chain testcerts.Chain) *api.Secret {
 	t.Helper()
-	s, err := client.Logical().Write(mount+"/certs/"+name+"/import", map[string]any{
+	s, err := client.Logical().Write(mount+"/accounts/team-a/certs/"+name+"/import", map[string]any{
 		"fullchain": chain.Fullchain,
 		"privkey":   chain.Privkey,
 	})
@@ -211,7 +211,7 @@ func wantForbidden(t *testing.T, err error, what string) {
 
 func list(t *testing.T, client *api.Client, covers string) []string {
 	t.Helper()
-	req := client.NewRequest("LIST", "/v1/"+mount+"/certs")
+	req := client.NewRequest("LIST", "/v1/"+mount+"/accounts/team-a/certs")
 	if covers != "" {
 		req.Params.Set("covers", covers)
 	}
@@ -244,6 +244,12 @@ func TestIntegration(t *testing.T) {
 	wildcard := testcerts.New(t, testcerts.Options{Names: []string{"*.example.com", "example.com"}})
 	other := testcerts.New(t, testcerts.Options{Names: []string{"example.org"}})
 
+	for _, account := range []string{"team-a", "team-b"} {
+		if _, err := c.client.Logical().Write(mount+"/config/accounts/"+account, map[string]any{}); err != nil {
+			t.Fatalf("creating account %s: %v", account, err)
+		}
+	}
+
 	t.Run("import is idempotent", func(t *testing.T) {
 		first := importCert(t, c.client, "wildcard.example.com", wildcard)
 		if first.Data["written"] != true {
@@ -257,11 +263,11 @@ func TestIntegration(t *testing.T) {
 	})
 
 	t.Run("read returns the key, info does not", func(t *testing.T) {
-		full := read(t, c.client, "certs/wildcard.example.com")
+		full := read(t, c.client, "accounts/team-a/certs/wildcard.example.com")
 		if full.Data["privkey"] != wildcard.Privkey {
 			t.Error("privkey differs from the imported one")
 		}
-		info := read(t, c.client, "certs/wildcard.example.com/info")
+		info := read(t, c.client, "accounts/team-a/certs/wildcard.example.com/info")
 		if _, ok := info.Data["privkey"]; ok {
 			t.Error("info returned privkey")
 		}
@@ -271,30 +277,47 @@ func TestIntegration(t *testing.T) {
 	})
 
 	t.Run("policies separate key and description", func(t *testing.T) {
-		monitoring := c.tokenFor(`path "certificates/certs/+/info" { capabilities = ["read"] }`)
-		consumer := c.tokenFor(`path "certificates/certs/example.org" { capabilities = ["read"] }`)
-		importer := c.tokenFor(`path "certificates/certs/+/import" { capabilities = ["update"] }`)
+		monitoring := c.tokenFor(`path "certificates/accounts/team-a/certs/+/info" { capabilities = ["read"] }`)
+		consumer := c.tokenFor(`path "certificates/accounts/team-a/certs/example.org" { capabilities = ["read"] }`)
+		importer := c.tokenFor(`path "certificates/accounts/team-a/certs/+/import" { capabilities = ["update"] }`)
 
-		read(t, monitoring, "certs/wildcard.example.com/info")
-		_, err := monitoring.Logical().Read(mount + "/certs/wildcard.example.com")
+		read(t, monitoring, "accounts/team-a/certs/wildcard.example.com/info")
+		_, err := monitoring.Logical().Read(mount + "/accounts/team-a/certs/wildcard.example.com")
 		wantForbidden(t, err, "monitoring reading the key")
 
-		if read(t, consumer, "certs/example.org").Data["privkey"] != other.Privkey {
+		if read(t, consumer, "accounts/team-a/certs/example.org").Data["privkey"] != other.Privkey {
 			t.Error("consumer got the wrong key")
 		}
-		_, err = consumer.Logical().Read(mount + "/certs/wildcard.example.com")
+		_, err = consumer.Logical().Read(mount + "/accounts/team-a/certs/wildcard.example.com")
 		wantForbidden(t, err, "consumer reading another certificate")
 
 		renewed := testcerts.New(t, testcerts.Options{Names: []string{"example.org"}})
 		if s := importCert(t, importer, "example.org", renewed); fmt.Sprint(s.Data["version"]) != "2" {
 			t.Errorf("importer's import: %v", s.Data)
 		}
-		_, err = importer.Logical().Read(mount + "/certs/example.org")
+		_, err = importer.Logical().Read(mount + "/accounts/team-a/certs/example.org")
 		wantForbidden(t, err, "importer reading the key")
 
-		by := read(t, c.client, "certs/example.org/info").Data["imported_by"].(map[string]any)
+		by := read(t, c.client, "accounts/team-a/certs/example.org/info").Data["imported_by"].(map[string]any)
 		if !strings.HasPrefix(by["display_name"].(string), "token") {
 			t.Errorf("imported_by = %v", by)
+		}
+	})
+
+	t.Run("accounts are kept apart", func(t *testing.T) {
+		teamB := c.tokenFor(`path "certificates/accounts/team-b/*" { capabilities = ["create", "read", "update", "delete", "list"] }`)
+
+		_, err := teamB.Logical().Read(mount + "/accounts/team-a/certs/example.org")
+		wantForbidden(t, err, "team B reading team A's path")
+
+		if s, err := teamB.Logical().Read(mount + "/accounts/team-b/certs/example.org"); err != nil || s != nil {
+			t.Errorf("team B reached team A's certificate through its own path: %v, %v", s, err)
+		}
+		_, err = teamB.Logical().Write(mount+"/accounts/team-b/certs/example.org/import", map[string]any{
+			"fullchain": other.Fullchain, "privkey": other.Privkey,
+		})
+		if err == nil || !strings.Contains(err.Error(), "used by another account") {
+			t.Errorf("team B importing over team A's name: %v", err)
 		}
 	})
 
@@ -342,14 +365,14 @@ func TestIntegration(t *testing.T) {
 	})
 
 	t.Run("DNS credentials stay inside", func(t *testing.T) {
-		if _, err := c.client.Logical().Write(mount+"/config/dns/domeneshop", map[string]any{
+		if _, err := c.client.Logical().Write(mount+"/accounts/team-a/dns/domeneshop", map[string]any{
 			"provider":   "domeneshop",
 			"api_token":  "dns-tok3n",
 			"api_secret": "dns-s3cret",
 		}); err != nil {
 			t.Fatal(err)
 		}
-		got := read(t, c.client, "config/dns/domeneshop").Data
+		got := read(t, c.client, "accounts/team-a/dns/domeneshop").Data
 		if got["api_token_set"] != true || got["api_secret_set"] != true {
 			t.Errorf("dns = %v", got)
 		}
@@ -364,14 +387,13 @@ func TestIntegration(t *testing.T) {
 				"directory_url":           "https://127.0.0.1:1/directory",
 				"terms_of_service_agreed": true,
 			},
-			"config/dns/bind": {"provider": "dnsupdate", "nameserver": "127.0.0.1"},
-			"certs/background": {
+			"accounts/unreachable/dns/bind": {"provider": "dnsupdate", "nameserver": "127.0.0.1"},
+			"accounts/unreachable/certs/background": {
 				"names":        "www.example.test",
-				"account":      "unreachable",
 				"dns_provider": "bind",
 			},
 		}
-		for _, path := range []string{"config/accounts/unreachable", "config/dns/bind", "certs/background"} {
+		for _, path := range []string{"config/accounts/unreachable", "accounts/unreachable/dns/bind", "accounts/unreachable/certs/background"} {
 			if _, err := c.client.Logical().Write(mount+"/"+path, writes[path]); err != nil {
 				t.Fatalf("%s: %v", path, err)
 			}
@@ -379,7 +401,7 @@ func TestIntegration(t *testing.T) {
 
 		var issuance map[string]any
 		for range 100 {
-			issuance = read(t, c.client, "certs/background/info").Data["issuance"].(map[string]any)
+			issuance = read(t, c.client, "accounts/unreachable/certs/background/info").Data["issuance"].(map[string]any)
 			if fmt.Sprint(issuance["failures"]) == "1" {
 				break
 			}
@@ -389,7 +411,7 @@ func TestIntegration(t *testing.T) {
 			t.Fatalf("issuance = %v", issuance)
 		}
 
-		status := read(t, c.client, "certs/background/status").Data
+		status := read(t, c.client, "accounts/unreachable/certs/background/status").Data
 		attempts, _ := status["attempts"].([]any)
 		if status["state"] != "failing" || len(attempts) != 1 {
 			t.Errorf("status = %v", status)
@@ -407,7 +429,7 @@ func TestIntegration(t *testing.T) {
 		var info *api.Secret
 		var err error
 		for range 50 {
-			info, err = c.client.Logical().Read(mount + "/certs/example.org/info")
+			info, err = c.client.Logical().Read(mount + "/accounts/team-a/certs/example.org/info")
 			if err == nil && info != nil {
 				break
 			}

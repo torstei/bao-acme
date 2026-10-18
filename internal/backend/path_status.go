@@ -48,12 +48,12 @@ func certState(m *certMeta, current *certVersion, running *job, now time.Time) s
 
 func pathCertStatus(b *backend) *framework.Path {
 	return &framework.Path{
-		Pattern: "certs/" + framework.GenericNameRegex("name") + "/status",
+		Pattern: certPath("/status"),
 		DisplayAttrs: &framework.DisplayAttributes{
 			OperationPrefix: operationPrefix,
 			OperationSuffix: "certificate-status",
 		},
-		Fields: map[string]*framework.FieldSchema{"name": nameField()},
+		Fields: map[string]*framework.FieldSchema{"account": accountField(), "name": nameField()},
 		Operations: map[logical.Operation]framework.OperationHandler{
 			logical.ReadOperation: &framework.PathOperation{Callback: b.handleCertStatus},
 		},
@@ -76,9 +76,9 @@ func pathStatus(b *backend) *framework.Path {
 }
 
 func (b *backend) handleCertStatus(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	name := d.Get("name").(string)
+	account, name := d.Get("account").(string), d.Get("name").(string)
 	m, current, err := b.loadCurrent(ctx, req.Storage, name)
-	if err != nil || m == nil {
+	if err != nil || m == nil || m.owner() != account {
 		return nil, err
 	}
 	now := b.now()
@@ -139,6 +139,7 @@ func (b *backend) handleCertStatus(ctx context.Context, req *logical.Request, d 
 // summary is what both status paths say about a certificate.
 func summary(m *certMeta, current *certVersion, running *job, now time.Time) map[string]any {
 	data := map[string]any{
+		"account":  m.owner(),
 		"state":    certState(m, current, running, now),
 		"managed":  m.Managed != nil,
 		"running":  running != nil,
@@ -158,7 +159,28 @@ func summary(m *certMeta, current *certVersion, running *job, now time.Time) map
 	return data
 }
 
+func pathAccountStatus(b *backend) *framework.Path {
+	return &framework.Path{
+		Pattern: accountPrefix() + "/status",
+		DisplayAttrs: &framework.DisplayAttributes{
+			OperationPrefix: operationPrefix,
+			OperationSuffix: "account-status",
+		},
+		Fields: map[string]*framework.FieldSchema{"account": accountField()},
+		Operations: map[logical.Operation]framework.OperationHandler{
+			logical.ReadOperation: &framework.PathOperation{Callback: b.handleStatus},
+		},
+		HelpSynopsis: "The account's certificates: each one's state and expiry, and how many are in each state.",
+	}
+}
+
+// handleStatus serves both the mount's status and an account's; the
+// latter has an account field.
 func (b *backend) handleStatus(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
+	account, scoped := "", false
+	if raw, ok := d.Raw["account"]; ok {
+		account, scoped = raw.(string), true
+	}
 	names, err := listNames(ctx, req.Storage)
 	if err != nil {
 		return nil, err
@@ -174,7 +196,7 @@ func (b *backend) handleStatus(ctx context.Context, req *logical.Request, d *fra
 		if err != nil {
 			return nil, err
 		}
-		if m == nil {
+		if m == nil || scoped && m.owner() != account {
 			continue
 		}
 		s := summary(m, current, b.issuer.job(name), now)

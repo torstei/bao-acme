@@ -198,11 +198,11 @@ func (b *backend) recover(ctx context.Context, s logical.Storage, name string) e
 
 func (b *backend) cleanupLeftovers(ctx context.Context, s logical.Storage, name string, e *inflightEntry) {
 	var provider challenge.Provider
-	dnsEntry, err := loadDNS(ctx, s, e.DNSProvider)
+	dnsEntry, _, err := ownedDNS(ctx, s, e.Account, e.DNSProvider)
 	switch {
 	case err != nil:
 	case dnsEntry == nil:
-		err = fmt.Errorf("no DNS provider named %q", e.DNSProvider)
+		err = fmt.Errorf("account %q has no DNS provider named %q", e.Account, e.DNSProvider)
 	default:
 		var n *networkEntry
 		if n, err = loadNetwork(ctx, s); err == nil {
