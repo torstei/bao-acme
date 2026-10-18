@@ -36,13 +36,27 @@ Each [release](https://github.com/torstei/bao-acme/releases) has a static binary
 and linux/arm64, a `SHA256SUMS` file, and build provenance:
 
 ```sh
-curl -LO https://github.com/torstei/bao-acme/releases/latest/download/bao-acme_linux_amd64
+v=v0.2.0
+curl -LO https://github.com/torstei/bao-acme/releases/download/$v/bao-acme_linux_amd64
 gh attestation verify bao-acme_linux_amd64 --repo torstei/bao-acme
 
-install -m 0755 bao-acme_linux_amd64 /path/to/plugin_directory/bao-acme
-bao plugin register -sha256="$(sha256sum bao-acme_linux_amd64 | cut -d' ' -f1)" secret bao-acme
-bao secrets enable -path=certificates bao-acme
+install -m 0755 bao-acme_linux_amd64 /path/to/plugin_directory/bao-acme-$v
+bao plugin register -sha256="$(sha256sum bao-acme_linux_amd64 | cut -d' ' -f1)" \
+    -command=bao-acme-$v -version=$v secret bao-acme
+bao secrets enable -path=certificates -plugin-version=$v bao-acme
 ```
+
+To upgrade, install and register the new version the same way, next to the old one, then:
+
+```sh
+bao secrets tune -plugin-version=$v certificates
+bao plugin reload -plugin=bao-acme
+```
+
+Registering with a version, and a binary named after it, keeps each version's checksum with its
+own file. Replacing the binary of an unversioned registration in place instead made the mount's
+requests fail with `checksums did not match`. Every release reads what earlier releases stored
+(see [design §5.6](docs/design.md)).
 
 Or build it yourself with `make build`, which writes `bin/bao-acme`.
 
