@@ -27,12 +27,13 @@ func nameField() *framework.FieldSchema {
 
 func pathCertsList(b *backend) *framework.Path {
 	return &framework.Path{
-		Pattern: "certs/?$",
+		Pattern: accountPrefix() + "/certs/?$",
 		DisplayAttrs: &framework.DisplayAttributes{
 			OperationPrefix: operationPrefix,
 			OperationSuffix: "certificates",
 		},
 		Fields: map[string]*framework.FieldSchema{
+			"account": accountField(),
 			"covers": {
 				Type:        framework.TypeString,
 				Description: "Only list certificates whose current version covers this host name or IP address.",
@@ -48,13 +49,14 @@ func pathCertsList(b *backend) *framework.Path {
 
 func pathCert(b *backend) *framework.Path {
 	return &framework.Path{
-		Pattern: "certs/" + framework.GenericNameRegex("name"),
+		Pattern: certPath(""),
 		DisplayAttrs: &framework.DisplayAttributes{
 			OperationPrefix: operationPrefix,
 			OperationSuffix: "certificate",
 		},
 		Fields: map[string]*framework.FieldSchema{
-			"name": nameField(),
+			"account": accountField(),
+			"name":    nameField(),
 			"names": {
 				Type:        framework.TypeCommaStringSlice,
 				Description: "DNS names for a managed certificate; wildcards allowed as the leftmost label.",
@@ -63,13 +65,9 @@ func pathCert(b *backend) *framework.Path {
 				Type:        framework.TypeString,
 				Description: fmt.Sprintf("Key type for a managed certificate: %s. Default %s.", strings.Join(cert.KeyTypes, ", "), defaultCertKeyType),
 			},
-			"account": {
-				Type:        framework.TypeString,
-				Description: "ACME account (config/accounts/<account>) for a managed certificate.",
-			},
 			"dns_provider": {
 				Type:        framework.TypeString,
-				Description: "DNS provider (config/dns/<name>) for a managed certificate's DNS-01 challenges.",
+				Description: "DNS provider (accounts/<account>/dns/<name>, one of this account's) for a managed certificate's DNS-01 challenges.",
 			},
 			"reuse_key": {
 				Type:        framework.TypeBool,
@@ -93,13 +91,13 @@ func pathCert(b *backend) *framework.Path {
 
 func pathCertUnmanage(b *backend) *framework.Path {
 	return &framework.Path{
-		Pattern: "certs/" + framework.GenericNameRegex("name") + "/unmanage",
+		Pattern: certPath("/unmanage"),
 		DisplayAttrs: &framework.DisplayAttributes{
 			OperationPrefix: operationPrefix,
 			OperationVerb:   "unmanage",
 			OperationSuffix: "certificate",
 		},
-		Fields: map[string]*framework.FieldSchema{"name": nameField()},
+		Fields: map[string]*framework.FieldSchema{"account": accountField(), "name": nameField()},
 		Operations: map[logical.Operation]framework.OperationHandler{
 			logical.UpdateOperation: &framework.PathOperation{Callback: b.handleUnmanage},
 		},
@@ -109,13 +107,14 @@ func pathCertUnmanage(b *backend) *framework.Path {
 
 func pathCertVersion(b *backend) *framework.Path {
 	return &framework.Path{
-		Pattern: "certs/" + framework.GenericNameRegex("name") + "/versions/(?P<version>[1-9][0-9]*)",
+		Pattern: certPath("/versions/(?P<version>[1-9][0-9]*)"),
 		DisplayAttrs: &framework.DisplayAttributes{
 			OperationPrefix: operationPrefix,
 			OperationSuffix: "certificate-version",
 		},
 		Fields: map[string]*framework.FieldSchema{
-			"name": nameField(),
+			"account": accountField(),
+			"name":    nameField(),
 			"version": {
 				Type:        framework.TypeInt,
 				Description: "Version number.",
@@ -131,12 +130,12 @@ func pathCertVersion(b *backend) *framework.Path {
 
 func pathCertInfo(b *backend) *framework.Path {
 	return &framework.Path{
-		Pattern: "certs/" + framework.GenericNameRegex("name") + "/info",
+		Pattern: certPath("/info"),
 		DisplayAttrs: &framework.DisplayAttributes{
 			OperationPrefix: operationPrefix,
 			OperationSuffix: "certificate-info",
 		},
-		Fields: map[string]*framework.FieldSchema{"name": nameField()},
+		Fields: map[string]*framework.FieldSchema{"account": accountField(), "name": nameField()},
 		Operations: map[logical.Operation]framework.OperationHandler{
 			logical.ReadOperation: &framework.PathOperation{Callback: b.handleInfo},
 		},
@@ -146,14 +145,15 @@ func pathCertInfo(b *backend) *framework.Path {
 
 func pathCertImport(b *backend) *framework.Path {
 	return &framework.Path{
-		Pattern: "certs/" + framework.GenericNameRegex("name") + "/import",
+		Pattern: certPath("/import"),
 		DisplayAttrs: &framework.DisplayAttributes{
 			OperationPrefix: operationPrefix,
 			OperationVerb:   "import",
 			OperationSuffix: "certificate",
 		},
 		Fields: map[string]*framework.FieldSchema{
-			"name": nameField(),
+			"account": accountField(),
+			"name":    nameField(),
 			"fullchain": {
 				Type:        framework.TypeString,
 				Description: "PEM certificates, leaf first, each followed by the one that signed it.",
@@ -178,14 +178,15 @@ func pathCertImport(b *backend) *framework.Path {
 
 func pathCertRollback(b *backend) *framework.Path {
 	return &framework.Path{
-		Pattern: "certs/" + framework.GenericNameRegex("name") + "/rollback",
+		Pattern: certPath("/rollback"),
 		DisplayAttrs: &framework.DisplayAttributes{
 			OperationPrefix: operationPrefix,
 			OperationVerb:   "rollback",
 			OperationSuffix: "certificate",
 		},
 		Fields: map[string]*framework.FieldSchema{
-			"name": nameField(),
+			"account": accountField(),
+			"name":    nameField(),
 			"version": {
 				Type:        framework.TypeInt,
 				Description: "Version to make current.",
@@ -201,14 +202,15 @@ func pathCertRollback(b *backend) *framework.Path {
 
 func pathCertDestroy(b *backend) *framework.Path {
 	return &framework.Path{
-		Pattern: "certs/" + framework.GenericNameRegex("name") + "/destroy",
+		Pattern: certPath("/destroy"),
 		DisplayAttrs: &framework.DisplayAttributes{
 			OperationPrefix: operationPrefix,
 			OperationVerb:   "destroy",
 			OperationSuffix: "certificate-versions",
 		},
 		Fields: map[string]*framework.FieldSchema{
-			"name": nameField(),
+			"account": accountField(),
+			"name":    nameField(),
 			"versions": {
 				Type:        framework.TypeCommaIntSlice,
 				Description: "Versions whose private keys to destroy.",
@@ -226,22 +228,24 @@ func pathCertDestroy(b *backend) *framework.Path {
 }
 
 func (b *backend) handleList(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
+	account := d.Get("account").(string)
 	names, err := listNames(ctx, req.Storage)
 	if err != nil {
 		return nil, err
 	}
 	host := d.Get("covers").(string)
-	if host == "" {
-		return logical.ListResponse(names), nil
-	}
 
 	matching := []string{}
 	for _, name := range names {
-		m, err := loadMeta(ctx, req.Storage, name)
+		m, _, err := ownedMeta(ctx, req.Storage, account, name)
 		if err != nil {
 			return nil, err
 		}
 		if m == nil {
+			continue
+		}
+		if host == "" {
+			matching = append(matching, name)
 			continue
 		}
 		v, err := loadVersion(ctx, req.Storage, name, m.CurrentVersion)
@@ -256,12 +260,12 @@ func (b *backend) handleList(ctx context.Context, req *logical.Request, d *frame
 }
 
 func (b *backend) handleRead(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	name := d.Get("name").(string)
+	account, name := d.Get("account").(string), d.Get("name").(string)
 	l := b.lock(name)
 	l.RLock()
 	defer l.RUnlock()
 
-	m, err := loadMeta(ctx, req.Storage, name)
+	m, _, err := ownedMeta(ctx, req.Storage, account, name)
 	if err != nil || m == nil {
 		return nil, err
 	}
@@ -269,12 +273,15 @@ func (b *backend) handleRead(ctx context.Context, req *logical.Request, d *frame
 }
 
 func (b *backend) handleReadVersion(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	name := d.Get("name").(string)
+	account, name := d.Get("account").(string), d.Get("name").(string)
 	n := d.Get("version").(int)
 	l := b.lock(name)
 	l.RLock()
 	defer l.RUnlock()
 
+	if m, _, err := ownedMeta(ctx, req.Storage, account, name); err != nil || m == nil {
+		return nil, err
+	}
 	return b.versionResponse(ctx, req.Storage, name, n)
 }
 
@@ -295,12 +302,12 @@ func (b *backend) versionResponse(ctx context.Context, s logical.Storage, name s
 }
 
 func (b *backend) handleInfo(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	name := d.Get("name").(string)
+	account, name := d.Get("account").(string), d.Get("name").(string)
 	l := b.lock(name)
 	l.RLock()
 	defer l.RUnlock()
 
-	m, err := loadMeta(ctx, req.Storage, name)
+	m, _, err := ownedMeta(ctx, req.Storage, account, name)
 	if err != nil || m == nil {
 		return nil, err
 	}
@@ -343,6 +350,7 @@ func (b *backend) infoResponse(ctx context.Context, s logical.Storage, name stri
 		data = versionData(current)
 		data["destroyed"] = current.destroyed()
 	}
+	data["account"] = m.owner()
 	data["current_version"] = m.CurrentVersion
 	data["latest_version"] = m.LatestVersion
 	data["max_versions"] = m.MaxVersions
@@ -418,7 +426,7 @@ func versionData(v *certVersion) map[string]any {
 }
 
 func (b *backend) handleImport(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	name := d.Get("name").(string)
+	account, name := d.Get("account").(string), d.Get("name").(string)
 	now := b.now().UTC()
 
 	bundle, err := cert.Parse(d.Get("fullchain").(string), d.Get("privkey").(string), now)
@@ -439,13 +447,12 @@ func (b *backend) handleImport(ctx context.Context, req *logical.Request, d *fra
 	l.Lock()
 	defer l.Unlock()
 
-	m, err := loadMeta(ctx, req.Storage, name)
-	if err != nil {
-		return nil, err
+	m, resp, err := newOwnedMeta(ctx, req.Storage, account, name)
+	if resp != nil || err != nil {
+		return resp, err
 	}
-	if m == nil {
-		m = &certMeta{MaxVersions: defaultMaxVersions}
-	} else {
+	m.Account = account
+	if m.LatestVersion > 0 {
 		current, err := loadVersion(ctx, req.Storage, name, m.CurrentVersion)
 		if err != nil {
 			return nil, err
@@ -489,14 +496,14 @@ func importResponse(v *certVersion, written bool) *logical.Response {
 }
 
 func (b *backend) handleRollback(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	name := d.Get("name").(string)
+	account, name := d.Get("account").(string), d.Get("name").(string)
 	n := d.Get("version").(int)
 
 	l := b.lock(name)
 	l.Lock()
 	defer l.Unlock()
 
-	m, err := loadMeta(ctx, req.Storage, name)
+	m, _, err := ownedMeta(ctx, req.Storage, account, name)
 	if err != nil {
 		return nil, err
 	}
@@ -528,7 +535,7 @@ func (b *backend) handleRollback(ctx context.Context, req *logical.Request, d *f
 }
 
 func (b *backend) handleDestroy(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	name := d.Get("name").(string)
+	account, name := d.Get("account").(string), d.Get("name").(string)
 	ns := d.Get("versions").([]int)
 	spki := strings.ToLower(strings.TrimSpace(d.Get("spki_sha256").(string)))
 	if (len(ns) == 0) == (spki == "") {
@@ -539,7 +546,7 @@ func (b *backend) handleDestroy(ctx context.Context, req *logical.Request, d *fr
 	l.Lock()
 	defer l.Unlock()
 
-	m, err := loadMeta(ctx, req.Storage, name)
+	m, _, err := ownedMeta(ctx, req.Storage, account, name)
 	if err != nil {
 		return nil, err
 	}
@@ -616,10 +623,13 @@ func (b *backend) handleDestroy(ctx context.Context, req *logical.Request, d *fr
 }
 
 func (b *backend) handleDelete(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	name := d.Get("name").(string)
+	account, name := d.Get("account").(string), d.Get("name").(string)
 	l := b.lock(name)
 	l.Lock()
 	defer l.Unlock()
 
+	if m, _, err := ownedMeta(ctx, req.Storage, account, name); err != nil || m == nil {
+		return nil, err
+	}
 	return nil, deleteCert(ctx, req.Storage, name)
 }

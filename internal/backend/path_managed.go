@@ -15,35 +15,37 @@ import (
 )
 
 func (b *backend) certExists(ctx context.Context, req *logical.Request, d *framework.FieldData) (bool, error) {
-	m, err := loadMeta(ctx, req.Storage, d.Get("name").(string))
+	m, _, err := ownedMeta(ctx, req.Storage, d.Get("account").(string), d.Get("name").(string))
 	return m != nil, err
 }
 
 func (b *backend) handleDefine(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	name := d.Get("name").(string)
-	resp, start, err := b.define(ctx, req.Storage, name, d)
+	account, name := d.Get("account").(string), d.Get("name").(string)
+	resp, start, err := b.define(ctx, req.Storage, account, name, d)
 	if err == nil && start {
 		resp.Data["issuing"] = b.startIssuance(name)
 	}
 	return resp, err
 }
 
-func (b *backend) define(ctx context.Context, s logical.Storage, name string, d *framework.FieldData) (*logical.Response, bool, error) {
+func (b *backend) define(ctx context.Context, s logical.Storage, account, name string, d *framework.FieldData) (*logical.Response, bool, error) {
 	l := b.lock(name)
 	l.Lock()
 	defer l.Unlock()
 
-	m, err := loadMeta(ctx, s, name)
+	m, resp, err := newOwnedMeta(ctx, s, account, name)
 	if err != nil {
 		return nil, false, err
 	}
-	if m == nil {
-		m = &certMeta{MaxVersions: defaultMaxVersions}
+	if resp != nil {
+		return resp, false, logical.ErrInvalidRequest
 	}
+	m.Account = account
 	spec := managedSpec{KeyType: defaultCertKeyType}
 	if m.Managed != nil {
 		spec = *m.Managed
 	}
+	spec.Account = account
 
 	if raw, ok := d.GetOk("names"); ok {
 		names, err := cert.NormaliseNames(raw.([]string))
@@ -61,27 +63,24 @@ func (b *backend) define(ctx context.Context, s logical.Storage, name string, d 
 		}
 		spec.KeyType = raw.(string)
 	}
-	if raw, ok := d.GetOk("account"); ok {
-		spec.Account = raw.(string)
-	}
 	if raw, ok := d.GetOk("dns_provider"); ok {
 		spec.DNSProvider = raw.(string)
 	}
 	if raw, ok := d.GetOk("reuse_key"); ok {
 		spec.ReuseKey = raw.(bool)
 	}
-	if spec.Account == "" || spec.DNSProvider == "" {
-		return logical.ErrorResponse("account and dns_provider are required to manage a certificate"), false, logical.ErrInvalidRequest
+	if spec.DNSProvider == "" {
+		return logical.ErrorResponse("dns_provider is required to manage a certificate"), false, logical.ErrInvalidRequest
 	}
-	if a, err := loadAccount(ctx, s, spec.Account); err != nil {
+	if a, err := loadAccount(ctx, s, account); err != nil {
 		return nil, false, err
-	} else if a == nil {
-		return logical.ErrorResponse("no account named %q", spec.Account), false, logical.ErrInvalidRequest
+	} else if a.DirectoryURL == "" {
+		return logical.ErrorResponse("account %q has no directory_url, so it can hold only imported certificates", account), false, logical.ErrInvalidRequest
 	}
-	if e, err := loadDNS(ctx, s, spec.DNSProvider); err != nil {
+	if e, _, err := ownedDNS(ctx, s, account, spec.DNSProvider); err != nil {
 		return nil, false, err
 	} else if e == nil {
-		return logical.ErrorResponse("no DNS provider named %q", spec.DNSProvider), false, logical.ErrInvalidRequest
+		return logical.ErrorResponse("account %q has no DNS provider named %q", account, spec.DNSProvider), false, logical.ErrInvalidRequest
 	}
 	if raw, ok := d.GetOk("max_versions"); ok {
 		if raw.(int) < 1 {
@@ -113,7 +112,7 @@ func (b *backend) define(ctx context.Context, s logical.Storage, name string, d 
 	if err != nil {
 		return nil, false, err
 	}
-	resp := &logical.Response{Data: map[string]any{
+	resp = &logical.Response{Data: map[string]any{
 		"definition": definitionData(m.Managed),
 		"issuance":   issuanceData(m, current, b.now()),
 	}}
@@ -125,18 +124,19 @@ func sameDefinition(a, b *managedSpec) bool {
 }
 
 func (b *backend) handleUnmanage(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	name := d.Get("name").(string)
+	account, name := d.Get("account").(string), d.Get("name").(string)
 	l := b.lock(name)
 	l.Lock()
 	defer l.Unlock()
 
-	m, err := loadMeta(ctx, req.Storage, name)
+	m, _, err := ownedMeta(ctx, req.Storage, account, name)
 	if err != nil {
 		return nil, err
 	}
 	if m == nil || m.Managed == nil {
 		return logical.ErrorResponse("certificate %q is not managed", name), logical.ErrInvalidRequest
 	}
+	m.Account = account
 	m.Managed = nil
 	m.Issuance = nil
 	if err := putJSON(ctx, req.Storage, metaKey(name), m); err != nil {
@@ -152,14 +152,15 @@ func (b *backend) handleUnmanage(ctx context.Context, req *logical.Request, d *f
 
 func pathCertRenew(b *backend) *framework.Path {
 	return &framework.Path{
-		Pattern: "certs/" + framework.GenericNameRegex("name") + "/renew",
+		Pattern: certPath("/renew"),
 		DisplayAttrs: &framework.DisplayAttributes{
 			OperationPrefix: operationPrefix,
 			OperationVerb:   "renew",
 			OperationSuffix: "certificate",
 		},
 		Fields: map[string]*framework.FieldSchema{
-			"name": nameField(),
+			"account": accountField(),
+			"name":    nameField(),
 			"rotate_key": {
 				Type:        framework.TypeBool,
 				Description: "Use a new key for this renewal, even if the definition reuses keys. Later renewals reuse the new one.",
@@ -173,19 +174,19 @@ func pathCertRenew(b *backend) *framework.Path {
 }
 
 func (b *backend) handleRenew(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	name := d.Get("name").(string)
-	if err := b.requestRenewal(ctx, req.Storage, name, d.Get("rotate_key").(bool)); err != nil {
+	account, name := d.Get("account").(string), d.Get("name").(string)
+	if err := b.requestRenewal(ctx, req.Storage, account, name, d.Get("rotate_key").(bool)); err != nil {
 		return logical.ErrorResponse(err.Error()), logical.ErrInvalidRequest
 	}
 	return &logical.Response{Data: map[string]any{"issuing": b.startIssuance(name)}}, nil
 }
 
-func (b *backend) requestRenewal(ctx context.Context, s logical.Storage, name string, rotateKey bool) error {
+func (b *backend) requestRenewal(ctx context.Context, s logical.Storage, account, name string, rotateKey bool) error {
 	l := b.lock(name)
 	l.Lock()
 	defer l.Unlock()
 
-	m, err := loadMeta(ctx, s, name)
+	m, _, err := ownedMeta(ctx, s, account, name)
 	if err != nil {
 		return err
 	}

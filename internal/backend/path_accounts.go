@@ -131,7 +131,7 @@ func pathAccount(b *backend) *framework.Path {
 			},
 			"directory_url": {
 				Type:        framework.TypeString,
-				Description: `ACME directory: an https URL, or a CA name known to lego such as "letsencrypt" or "letsencrypt-staging". Required when creating; fixed once registered.`,
+				Description: `ACME directory: an https URL, or a CA name known to lego such as "letsencrypt" or "letsencrypt-staging". Needed to register and issue; without it the account holds only imported certificates. Fixed once registered.`,
 			},
 			"email": {
 				Type:        framework.TypeString,
@@ -272,9 +272,6 @@ func (b *backend) handleAccountWrite(ctx context.Context, req *logical.Request, 
 		}
 		a.DirectoryURL = u
 	}
-	if a.DirectoryURL == "" {
-		return logical.ErrorResponse("directory_url is required"), logical.ErrInvalidRequest
-	}
 
 	if raw, ok := d.GetOk("key_type"); ok {
 		if !creating && raw.(string) != a.KeyType {
@@ -367,6 +364,9 @@ func (b *backend) handleAccountRegister(ctx context.Context, req *logical.Reques
 	if a == nil {
 		return logical.ErrorResponse("no account named %q", name), logical.ErrInvalidRequest
 	}
+	if a.DirectoryURL == "" {
+		return logical.ErrorResponse("account %q has no directory_url to register with", name), logical.ErrInvalidRequest
+	}
 	client, err := a.client()
 	if err != nil {
 		return nil, err
@@ -423,6 +423,13 @@ func (b *backend) handleAccountDelete(ctx context.Context, req *logical.Request,
 	a, err := loadAccount(ctx, req.Storage, name)
 	if err != nil || a == nil {
 		return nil, err
+	}
+	owned, err := accountInUse(ctx, req.Storage, name)
+	if err != nil {
+		return nil, err
+	}
+	if len(owned) > 0 {
+		return logical.ErrorResponse("account %q still owns %s; delete those first", name, strings.Join(owned, ", ")), logical.ErrInvalidRequest
 	}
 	if err := req.Storage.Delete(ctx, accountKey(name)); err != nil {
 		return nil, err

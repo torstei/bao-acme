@@ -17,7 +17,7 @@ import (
 func (e *managedEnv) defineReusing(name string, names ...string) {
 	e.t.Helper()
 	e.ok(logical.CreateOperation, "certs/"+name, map[string]any{
-		"names": strings.Join(names, ","), "account": "le", "dns_provider": "bind", "reuse_key": true,
+		"names": strings.Join(names, ","), "dns_provider": "bind", "reuse_key": true,
 	})
 }
 
@@ -137,7 +137,7 @@ func TestKeyDestroyedDuringAnAttemptIsNotStored(t *testing.T) {
 	e.waitFor("www", "the certificate", hasVersion(1))
 	e.b.issuer.stop()
 
-	if err := e.b.requestRenewal(ctx, e.storage, "www", false); err != nil {
+	if err := e.b.requestRenewal(ctx, e.storage, "le", "www", false); err != nil {
 		t.Fatal(err)
 	}
 	claim, err := e.b.claimIssuance(ctx, e.storage, "www")

@@ -765,7 +765,8 @@ not appear in clear text there.
 
 ## 8. Moving from certbot and a KV mount
 
-8.1. Mount the engine. Start the importer writing to `certs/<name>/import` instead of KV, or have
+8.1. Mount the engine and create the account (§4.5), for now without `directory_url`. Start the
+importer writing to `accounts/<account>/certs/<name>/import` instead of KV, or have
 the engine import the current certificate once.
 
 8.2. Point consumers at the engine's paths, or use §4.4 so they do not change at all.
@@ -773,7 +774,7 @@ the engine import the current certificate once.
 8.3. Configure the account and the DNS provider. Change the certificate from imported to managed, so
 its next renewal is the engine's own. Keep certbot as a fallback until a renewal has gone through.
 With the same names and key type, writing the definition changes nothing at once (§4.2.2); with
-other names, the engine issues at once. `certs/<name>/unmanage` goes back.
+other names, the engine issues at once. `accounts/<account>/certs/<name>/unmanage` goes back.
 
 8.4. Retire certbot and the importer.
 

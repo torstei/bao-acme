@@ -21,9 +21,11 @@ const defaultMaxVersions = 3
 // certMeta is the per-certificate entry. It is written after the version it
 // points to, so it never references a version that is not fully stored.
 type certMeta struct {
-	CurrentVersion int `json:"current_version"`
-	LatestVersion  int `json:"latest_version"`
-	MaxVersions    int `json:"max_versions"`
+	// Account owns the certificate; see owner for entries without one.
+	Account        string `json:"account,omitempty"`
+	CurrentVersion int    `json:"current_version"`
+	LatestVersion  int    `json:"latest_version"`
+	MaxVersions    int    `json:"max_versions"`
 
 	// Managed is set for a certificate the engine obtains itself.
 	Managed  *managedSpec   `json:"managed,omitempty"`

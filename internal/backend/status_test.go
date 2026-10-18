@@ -93,22 +93,22 @@ func TestStatusRecordsAttempts(t *testing.T) {
 		t.Fatalf("attempts = %v", attempts)
 	}
 
-	// The CA would reuse the authorization it just validated, so a broken
-	// DNS provider would not make the renewal fail; a missing one does.
-	e.ok(logical.DeleteOperation, "config/dns/bind", nil)
-	e.ok(logical.UpdateOperation, "certs/www/renew", nil)
-	e.waitFor("www", "a failed renewal", func(m *certMeta) bool { return m.Issuance.Failures == 1 })
+	// The CA would reuse the authorization it just validated, so a renewal
+	// with a broken DNS provider would succeed; a new name needs a fresh
+	// authorization, and fails.
+	e.ok(logical.UpdateOperation, "config/dns/bind", map[string]any{"tsig_secret": "d3Jvbmd3cm9uZ3dyb25nd3Jvbmd3cm9uZw=="})
+	e.define("www", "www.example.test", "new.example.test")
+	e.waitFor("www", "a failed renewal", func(m *certMeta) bool { return m.Issuance != nil && m.Issuance.Failures == 1 })
 
 	s = e.ok(logical.ReadOperation, "certs/www/status", nil)
 	if s.Data["state"] != stateFailing || s.Data["last_error"] == "" {
 		t.Errorf("status after a failed renewal = %v", s.Data)
 	}
 	attempts = s.Data["attempts"].([]map[string]any)
-	if len(attempts) != 2 || attempts[0]["outcome"] != "failed" || attempts[0]["error"] == "" || attempts[0]["reason"] != "a renewal was requested" || attempts[1]["outcome"] != "issued" {
+	if len(attempts) != 2 || attempts[0]["outcome"] != "failed" || attempts[0]["error"] == "" || attempts[0]["reason"] != "the current certificate does not match the definition" || attempts[1]["outcome"] != "issued" {
 		t.Errorf("attempts, newest first = %v", attempts)
 	}
 
-	e.ok(logical.CreateOperation, "config/dns/bind", map[string]any{"provider": "dnsupdate", "nameserver": e.dns.Addr})
 	e.define("www", "www.example.test", "api.example.test")
 	if m, _ := loadMeta(t.Context(), e.storage, "www"); m.Issuance == nil || len(m.Issuance.Attempts) < 2 {
 		t.Error("a new definition dropped the attempt history")

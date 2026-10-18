@@ -71,6 +71,7 @@ func New() *backend {
 			pathAccount(b),
 			pathNetwork(b),
 			pathStatus(b),
+			pathAccountStatus(b),
 			pathDNSList(b),
 			pathDNS(b),
 		},
@@ -97,15 +98,16 @@ func (b *backend) lock(name string) *locksutil.LockEntry {
 
 const backendHelp = `
 The bao-acme secrets engine stores TLS certificates with their private keys,
-versioned, together with a description it extracts from each certificate.
+versioned, together with a description it extracts from each certificate, and
+can obtain and renew them over ACME with DNS-01.
 
-Write a certificate to certs/<name>/import, or write names, account and
-dns_provider to certs/<name> to have the engine obtain it over ACME. Read it,
-key included, from certs/<name>, and its description alone from
-certs/<name>/info.
+Everything is done with an account. Its settings are at config/accounts/<account>;
+its DNS providers at accounts/<account>/dns/<name>; its certificates at
+accounts/<account>/certs/<name>. Import a certificate at .../certs/<name>/import,
+or write names and dns_provider to .../certs/<name> to have the engine obtain it.
+Read it, key included, from .../certs/<name>, and its description alone from
+.../certs/<name>/info.
 
-Configure ACME accounts at config/accounts/<name> and register them with
-config/accounts/<name>/register. config/network sets an optional forward
-proxy for all outgoing HTTP, and the DNS settings for DNS-01. Configure DNS
-providers at config/dns/<name>.
+config/network sets an optional forward proxy for all outgoing HTTP, and the DNS
+settings for DNS-01. status gives every certificate's state.
 `

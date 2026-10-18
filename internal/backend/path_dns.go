@@ -18,6 +18,8 @@ import (
 
 // dnsEntry is stored at config/dns/<name>.
 type dnsEntry struct {
+	// Account owns the provider; only its certificates may use it.
+	Account                   string            `json:"account,omitempty"`
 	Provider                  string            `json:"provider"`
 	Settings                  map[string]string `json:"settings"`
 	TTL                       int               `json:"ttl,omitempty"`
@@ -62,20 +64,22 @@ func (e *dnsEntry) provider(n *networkEntry) (challenge.Provider, error) {
 
 func pathDNSList(b *backend) *framework.Path {
 	return &framework.Path{
-		Pattern: "config/dns/?$",
+		Pattern: accountPrefix() + "/dns/?$",
 		DisplayAttrs: &framework.DisplayAttributes{
 			OperationPrefix: operationPrefix,
 			OperationSuffix: "dns-providers",
 		},
+		Fields: map[string]*framework.FieldSchema{"account": accountField()},
 		Operations: map[logical.Operation]framework.OperationHandler{
 			logical.ListOperation: &framework.PathOperation{Callback: b.handleDNSList},
 		},
-		HelpSynopsis: "List configured DNS providers.",
+		HelpSynopsis: "List the account's DNS providers.",
 	}
 }
 
 func pathDNS(b *backend) *framework.Path {
 	fields := map[string]*framework.FieldSchema{
+		"account": accountField(),
 		"name": {
 			Type:        framework.TypeString,
 			Description: "Name of this DNS provider configuration.",
@@ -108,7 +112,7 @@ func pathDNS(b *backend) *framework.Path {
 	}
 
 	return &framework.Path{
-		Pattern: "config/dns/" + framework.GenericNameRegex("name"),
+		Pattern: dnsPath(),
 		DisplayAttrs: &framework.DisplayAttributes{
 			OperationPrefix: operationPrefix,
 			OperationSuffix: "dns-provider",
@@ -121,7 +125,7 @@ func pathDNS(b *backend) *framework.Path {
 			logical.ReadOperation:   &framework.PathOperation{Callback: b.handleDNSRead},
 			logical.DeleteOperation: &framework.PathOperation{Callback: b.handleDNSDelete},
 		},
-		HelpSynopsis:    "Configure a DNS provider for DNS-01 challenges. Credentials are write-only.",
+		HelpSynopsis:    "Configure a DNS provider for this account's DNS-01 challenges. Credentials are write-only.",
 		HelpDescription: dnsHelp(),
 	}
 }
@@ -155,25 +159,36 @@ func toAny(s []string) []any {
 }
 
 func (b *backend) dnsExists(ctx context.Context, req *logical.Request, d *framework.FieldData) (bool, error) {
-	e, err := loadDNS(ctx, req.Storage, d.Get("name").(string))
+	e, _, err := ownedDNS(ctx, req.Storage, d.Get("account").(string), d.Get("name").(string))
 	return e != nil, err
 }
 
 func (b *backend) handleDNSList(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
+	account := d.Get("account").(string)
 	names, err := req.Storage.List(ctx, "config/dns/")
 	if err != nil {
 		return nil, err
 	}
-	return logical.ListResponse(names), nil
+	owned := []string{}
+	for _, name := range names {
+		e, _, err := ownedDNS(ctx, req.Storage, account, name)
+		if err != nil {
+			return nil, err
+		}
+		if e != nil {
+			owned = append(owned, name)
+		}
+	}
+	return logical.ListResponse(owned), nil
 }
 
 func (b *backend) handleDNSRead(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	name := d.Get("name").(string)
+	account, name := d.Get("account").(string), d.Get("name").(string)
 	l := b.lock(dnsLockName(name))
 	l.RLock()
 	defer l.RUnlock()
 
-	e, err := loadDNS(ctx, req.Storage, name)
+	e, _, err := ownedDNS(ctx, req.Storage, account, name)
 	if err != nil || e == nil {
 		return nil, err
 	}
@@ -186,6 +201,7 @@ func dnsLockName(name string) string {
 
 func dnsData(e *dnsEntry) map[string]any {
 	data := map[string]any{
+		"account":             e.Account,
 		"provider":            e.Provider,
 		"ttl":                 e.TTL,
 		"propagation_timeout": e.PropagationTimeoutSeconds,
@@ -208,18 +224,24 @@ func dnsData(e *dnsEntry) map[string]any {
 }
 
 func (b *backend) handleDNSWrite(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	name := d.Get("name").(string)
+	account, name := d.Get("account").(string), d.Get("name").(string)
 	l := b.lock(dnsLockName(name))
 	l.Lock()
 	defer l.Unlock()
 
-	e, err := loadDNS(ctx, req.Storage, name)
+	e, foreign, err := ownedDNS(ctx, req.Storage, account, name)
 	if err != nil {
 		return nil, err
 	}
+	if foreign {
+		return foreignName("DNS provider", name), logical.ErrInvalidRequest
+	}
 	creating := e == nil
 	if creating {
-		e = &dnsEntry{Settings: map[string]string{}, CreatedTime: b.now().UTC()}
+		if resp, err := requireAccount(ctx, req.Storage, account); resp != nil || err != nil {
+			return resp, err
+		}
+		e = &dnsEntry{Account: account, Settings: map[string]string{}, CreatedTime: b.now().UTC()}
 	}
 
 	if raw, ok := d.GetOk("provider"); ok {
@@ -279,9 +301,20 @@ func (b *backend) handleDNSWrite(ctx context.Context, req *logical.Request, d *f
 }
 
 func (b *backend) handleDNSDelete(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	name := d.Get("name").(string)
+	account, name := d.Get("account").(string), d.Get("name").(string)
 	l := b.lock(dnsLockName(name))
 	l.Lock()
 	defer l.Unlock()
+
+	if e, _, err := ownedDNS(ctx, req.Storage, account, name); err != nil || e == nil {
+		return nil, err
+	}
+	users, err := dnsInUse(ctx, req.Storage, name)
+	if err != nil {
+		return nil, err
+	}
+	if len(users) > 0 {
+		return logical.ErrorResponse("DNS provider %q is in use by %s", name, strings.Join(users, ", ")), logical.ErrInvalidRequest
+	}
 	return nil, req.Storage.Delete(ctx, dnsKey(name))
 }

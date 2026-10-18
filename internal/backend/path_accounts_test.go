@@ -80,7 +80,7 @@ func TestAccountLifecycle(t *testing.T) {
 		t.Error("account key changed")
 	}
 
-	if keys := h.ok(logical.ListOperation, "config/accounts/", nil).Data["keys"].([]string); len(keys) != 1 || keys[0] != "test" {
+	if keys := h.ok(logical.ListOperation, "config/accounts/", nil).Data["keys"].([]string); strings.Join(keys, ",") != "t,test" {
 		t.Errorf("list = %v", keys)
 	}
 	deleted := h.ok(logical.DeleteOperation, "config/accounts/test", nil)
@@ -119,7 +119,6 @@ func TestAccountValidation(t *testing.T) {
 	h := newHarness(t)
 	const path = "config/accounts/v"
 
-	h.fails(logical.CreateOperation, path, map[string]any{"email": "ops@example.com"}, "directory_url is required")
 	h.fails(logical.CreateOperation, path, map[string]any{"directory_url": "http://acme.example/dir"}, "https")
 	h.fails(logical.CreateOperation, path, map[string]any{"directory_url": "nope"}, "known CA name")
 	h.fails(logical.CreateOperation, path, map[string]any{"directory_url": "letsencrypt", "key_type": "dsa"}, "unsupported key type")
@@ -136,4 +135,7 @@ func TestAccountValidation(t *testing.T) {
 		t.Errorf("created = %v", ok.Data)
 	}
 	h.fails(logical.UpdateOperation, "config/accounts/missing/register", nil, "no account")
+
+	h.ok(logical.CreateOperation, "config/accounts/imports-only", map[string]any{"email": "ops@example.com"})
+	h.fails(logical.UpdateOperation, "config/accounts/imports-only/register", nil, "no directory_url")
 }
