@@ -310,6 +310,22 @@ func TestIntegration(t *testing.T) {
 		}
 	})
 
+	t.Run("account key stays inside", func(t *testing.T) {
+		created, err := c.client.Logical().Write(mount+"/config/accounts/le-staging", map[string]any{
+			"directory_url": "letsencrypt-staging",
+			"email":         "ops@example.com",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if created.Data["directory_url"] != "https://acme-staging-v02.api.letsencrypt.org/directory" || created.Data["registered"] != false {
+			t.Errorf("created = %v", created.Data)
+		}
+		if _, ok := read(t, c.client, "config/accounts/le-staging").Data["private_key"]; ok {
+			t.Error("account read returned the private key")
+		}
+	})
+
 	t.Run("data survives a plugin reload", func(t *testing.T) {
 		if _, err := c.client.Sys().ReloadPluginWithContext(ctx, &api.ReloadPluginInput{Plugin: pluginName}); err != nil {
 			t.Fatalf("reload: %v", err)

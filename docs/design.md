@@ -103,6 +103,45 @@ reads show only whether they are set.
 | `config/accounts/<account>` | ACME directory URL, contact address, EAB key id and HMAC key (write-only). The account key is generated inside the engine on first use and is never readable. Registering happens on first use, or explicitly with `config/accounts/<account>/register`. |
 | `config/dns/<provider>` | A DNS provider by `lego` name (`rfc2136`, `cloudflare`, `route53`, ...) and its settings. Credentials are write-only. |
 
+*Phase 2, accounts:*
+
+4.1.1. An account's fields are:
+
+4.1.1.1. `directory_url`: an https URL, or a CA name that lego knows, such as `letsencrypt` or
+`letsencrypt-staging`.
+
+4.1.1.2. `email`: optional, since Let's Encrypt no longer sends mail.
+
+4.1.1.3. `key_type`: default `ecdsa-p256`.
+
+4.1.1.4. `eab_kid` and `eab_hmac_key`.
+
+4.1.1.5. `ca_bundle`: PEM certificates to trust for the ACME server's TLS, in addition to the
+system roots, for a private ACME server such as step-ca or OpenBao's own PKI engine.
+
+4.1.1.6. `terms_of_service_agreed`.
+
+4.1.2. The account key is generated when the account is created, not on first use, so a stored
+account always has one.
+
+4.1.3. `register` makes the CA match the configuration. An account that is not yet registered is
+registered, with EAB when it is configured. A registered one has its contact updated if `email`
+changed, and its status refreshed. Registration is refused until `terms_of_service_agreed` is true,
+and the refusal names the CA's terms of service URL. Registering on first use comes with issuance
+(phase 3).
+
+4.1.4. `directory_url`, `key_type` and EAB cannot change once they are bound: `key_type` from
+creation, the others from registration. Changing them means a new account.
+
+4.1.5. Reads show `eab_hmac_key_set`, never the key.
+
+4.1.6. Deleting an account removes it from the engine only. It is not deactivated at the CA, and
+the response warns that its key is gone.
+
+4.1.7. lego is given the HTTP client, account key and EAB values directly; nothing passes through
+environment variables. Its log goes to OpenBao's log, at debug level, because it logs every request
+together with the contact address.
+
 ### 4.2. Certificates
 
 | Path | Method | What |
@@ -218,6 +257,7 @@ wrote, both on upgrade and when restoring an old Raft snapshot.
 |---|---|
 | `certs/<name>/meta` | Which version is current, the latest version number, `max_versions`. |
 | `certs/<name>/versions/<n>` | One version: certificate, chain, key and description, in one entry. |
+| `config/accounts/<name>` | An ACME account: its settings, its key (PKCS #8 PEM), and, once registered, a `registration` object with the account URL, status, contact and terms of service URL. |
 
 5.6.2. A `meta` entry:
 
@@ -273,7 +313,8 @@ that adds a field whose loss matters.
 pre-1.0 leeway.
 
 5.6.5. Tests enforce this format. `internal/backend/testdata/storage-v1/` holds real entries in
-this format, one file per storage key, and is never regenerated. One test loads them and reads
+this format, one file per storage key. A file is never regenerated once a release has shipped it.
+A new kind of entry adds its file when it is introduced. One test loads them and reads
 them through the API. Another checks that a fresh write still produces every field they have, so
 a renamed JSON tag fails CI. A new storage format adds a `storage-v2/` beside it, and `storage-v1/`
 stays.
