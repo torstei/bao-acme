@@ -495,8 +495,11 @@ including RFC 2136 dynamic updates for self-hosted name servers.
 their settings from the environment, which the whole process shares, so concurrent issuances
 could see each other's credentials. Each provider is constructed from its typed config
 (`NewDNSProviderConfig`) instead. Typed adapters come first for `domeneshop`, `rfc2136`,
-`cloudflare` and `route53`. A generic fallback for the other providers can set the variables
-under a mutex just for the constructor call, which is when providers read them.
+`cloudflare` and `route53`. A generic fallback for the other providers could set the variables
+under a mutex just for the constructor call, which is when providers read them. *Decided in
+v0.3.0:* no such fallback. It would bring environment variables back (§7.1.2), and a path shared by
+providers that each read their settings differently cannot be tested properly. Further providers
+are added typed, one at a time, when someone needs one (#3).
 
 6.4. **When to renew:**
 
