@@ -392,6 +392,26 @@ func TestWritesStorageV1InflightFields(t *testing.T) {
 	missingFields(t, "certs/leftover/inflight published 0", want["published"].([]any)[0].(map[string]any), got["published"].([]any)[0].(map[string]any))
 }
 
+func TestReadsStorageV1ReuseKey(t *testing.T) {
+	h := newHarness(t)
+	loadFixture(t, h, storageV1)
+	info := h.ok(logical.ReadOperation, "certs/reusing/info", nil)
+	if info.Data["definition"].(map[string]any)["reuse_key"] != true || info.Data["issuance"].(map[string]any)["rotate_key_requested"] != true {
+		t.Errorf("info = %v", info.Data)
+	}
+}
+
+func TestWritesStorageV1ReuseKeyFields(t *testing.T) {
+	e := newManagedEnv(t)
+	e.defineReusing("reusing", "reusing.example.test")
+	e.waitFor("reusing", "the certificate and its schedule", func(m *certMeta) bool { return m.CurrentVersion == 1 && m.Renewal != nil })
+	e.b.issuer.stop()
+	if err := e.b.requestRenewal(context.Background(), e.storage, "reusing", true); err != nil {
+		t.Fatal(err)
+	}
+	missingFields(t, "certs/reusing/meta", readFixture(t, "certs/reusing/meta"), freshMeta(t, e, "reusing"))
+}
+
 func TestWritesStorageV1Fields(t *testing.T) {
 	h := newHarness(t)
 	h.imp("example.com", testcerts.New(t, testcerts.Options{}))

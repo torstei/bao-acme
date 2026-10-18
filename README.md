@@ -77,16 +77,16 @@ tag can change, so a fix is always a new version.
 | `certs/<name>/info` | read | Description and version state. No key material. |
 | `certs/<name>/versions/<n>` | read | An earlier version, like `certs/<name>`. |
 | `certs/<name>/rollback` | write | `version`: make it current again. |
-| `certs/<name>/destroy` | write | `versions`: destroy their private keys, keep their descriptions. |
+| `certs/<name>/destroy` | write | `versions`, or `spki_sha256` for every version holding that key: destroy the private keys, keep the descriptions. |
 | `certs/` | list | Names. With `?covers=<host>`, only those whose names cover the host. |
 
 Managed certificates, obtained and renewed by the engine over ACME with DNS-01:
 
 | Path | Method | |
 |---|---|---|
-| `certs/<name>` | write | `names`, `account`, `dns_provider`, optionally `key_type` (default `ecdsa-p256`). Returns at once; the certificate is obtained in the background. An imported certificate under the same name keeps its versions. |
+| `certs/<name>` | write | `names`, `account`, `dns_provider`, optionally `key_type` (default `ecdsa-p256`) and `reuse_key` (renew with the same key, for consumers that pin it). Returns at once; the certificate is obtained in the background. An imported certificate under the same name keeps its versions. |
 | `certs/<name>/info` | read | Adds `definition` and `issuance`: why one is needed, last attempt and success, last error, failures, next attempt. |
-| `certs/<name>/renew` | write | Renew now, ignoring the schedule and any backoff. |
+| `certs/<name>/renew` | write | Renew now, ignoring the schedule and any backoff. `rotate_key=true` takes a new key this once. |
 | `certs/<name>/status` | read | `state` (`valid`, `renewal_due`, `renewing`, `issuing`, `pending`, `failing`, `expired`), `expires_in`, what is running now, the last ten attempts, and any attempt in flight or interrupted. Imported certificates too. |
 | `status` | read | Every certificate's state and expiry, and `counts` per state, in one read. |
 | `certs/<name>/unmanage` | write | Back to import-only, keeping the versions. |

@@ -37,10 +37,13 @@ const (
 
 // managedSpec defines a certificate the engine obtains itself.
 type managedSpec struct {
-	Names       []string  `json:"names"`
-	KeyType     string    `json:"key_type"`
-	Account     string    `json:"account"`
-	DNSProvider string    `json:"dns_provider"`
+	Names       []string `json:"names"`
+	KeyType     string   `json:"key_type"`
+	Account     string   `json:"account"`
+	DNSProvider string   `json:"dns_provider"`
+	// ReuseKey renews with the current version's key, so its public key
+	// stays the same for consumers that pin it.
+	ReuseKey    bool      `json:"reuse_key,omitempty"`
 	DefinedTime time.Time `json:"defined_time"`
 }
 
@@ -54,6 +57,9 @@ type issuanceState struct {
 	// RenewRequested is set by certs/<name>/renew until a certificate is
 	// stored.
 	RenewRequested bool `json:"renew_requested,omitempty"`
+	// RotateKey asks for a new key at the next issuance, despite
+	// ReuseKey.
+	RotateKey bool `json:"rotate_key,omitempty"`
 	// Attempts are the most recent attempts, newest first.
 	Attempts []attemptRecord `json:"attempts,omitempty"`
 }
@@ -431,6 +437,57 @@ type issuanceClaim struct {
 	replaces *x509.Certificate
 	key      crypto.Signer
 	keyPEM   string
+	// reusedFrom is the version whose key is reused, or 0 for a new key.
+	reusedFrom int
+}
+
+// chooseKey picks the key for an attempt: the current one when the
+// definition reuses keys and it is usable, otherwise a new one.
+func (b *backend) chooseKey(ctx context.Context, s logical.Storage, name string, m *certMeta, current *certVersion, claim *issuanceClaim) error {
+	rotate := m.Issuance != nil && m.Issuance.RotateKey
+	if m.Managed.ReuseKey && !rotate && current != nil && !current.destroyed() && current.Description.KeyType == m.Managed.KeyType {
+		destroyed, err := keyDestroyed(ctx, s, name, current.Description.SPKISHA256)
+		if err != nil {
+			return err
+		}
+		if !destroyed {
+			key, err := cert.ParseKey(current.Privkey)
+			if err != nil {
+				return fmt.Errorf("the current key: %w", err)
+			}
+			claim.key, claim.keyPEM, claim.reusedFrom = key, current.Privkey, current.Version
+			return nil
+		}
+	}
+	key, err := cert.GenerateKey(m.Managed.KeyType)
+	if err != nil {
+		return err
+	}
+	keyPEM, err := cert.EncodeKey(key)
+	if err != nil {
+		return err
+	}
+	claim.key, claim.keyPEM = key, keyPEM
+	return nil
+}
+
+// keyDestroyed reports whether any version holding the key with this
+// fingerprint has had its key destroyed: such a key is never used again.
+func keyDestroyed(ctx context.Context, s logical.Storage, name, spki string) (bool, error) {
+	ns, err := listVersions(ctx, s, name)
+	if err != nil {
+		return false, err
+	}
+	for _, n := range ns {
+		v, err := loadVersion(ctx, s, name, n)
+		if err != nil {
+			return false, err
+		}
+		if v != nil && v.destroyed() && v.Description.SPKISHA256 == spki {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // claimIssuance records the start of an attempt and returns what to do, or
@@ -450,10 +507,7 @@ func (b *backend) claimIssuance(ctx context.Context, s logical.Storage, name str
 		return nil, nil
 	}
 	claim := &issuanceClaim{spec: *m.Managed, reason: reason}
-	if claim.key, err = cert.GenerateKey(m.Managed.KeyType); err != nil {
-		return nil, err
-	}
-	if claim.keyPEM, err = cert.EncodeKey(claim.key); err != nil {
+	if err := b.chooseKey(ctx, s, name, m, current, claim); err != nil {
 		return nil, err
 	}
 
@@ -626,6 +680,21 @@ func (b *backend) recordIssuance(ctx context.Context, s logical.Storage, name st
 			return false, err
 		}
 		return false, issueErr
+	}
+
+	if destroyed, err := keyDestroyed(ctx, s, name, bundle.Describe().SPKISHA256); err != nil {
+		return false, err
+	} else if destroyed {
+		msg := "the key was destroyed while the certificate was being obtained, so it is not stored"
+		m.Issuance.Failures++
+		m.Issuance.LastError = msg
+		m.Issuance.NextAttemptTime = time.Time{}
+		attempt.Outcome, attempt.Error = "failed", msg
+		m.Issuance.addAttempt(attempt)
+		if err := putJSON(ctx, s, metaKey(name), m); err != nil {
+			return false, err
+		}
+		return false, errors.New(msg)
 	}
 
 	v, err := writeVersion(ctx, s, name, m, bundle, spec.source(), nil, now)

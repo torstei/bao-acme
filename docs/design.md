@@ -185,7 +185,7 @@ added with static credentials and the engine's HTTP client only, when someone ne
 | `certs/<name>/status` | read | For managed certificates: the next planned renewal and why (ARI window or default), the last attempt and its error, and the order in progress. |
 | `certs/<name>/renew` | write | Renew now, ignoring the schedule. |
 | `certs/<name>/rollback` | write | Make version `n` current again. Its description comes with it. |
-| `certs/<name>/destroy` | write | Destroy the key material of given versions, for a compromised key. |
+| `certs/<name>/destroy` | write | Destroy the key material of given versions, or with `spki_sha256` of every version holding that key, for a compromised key. |
 | `certs/` | list | Names. With a `covers=<host>` filter, only certificates whose names cover that host, applying the one-level wildcard rule. |
 
 *Phase 1:* `info` also returns `current_version`, `latest_version`, `max_versions`, `destroyed`,
@@ -258,6 +258,23 @@ running needs the persisted state machine (#9).
 `not_after`, `renew_at`, `failures`, `running`) and `counts` per state, so one read answers "is
 anything failing or about to expire". It is a separate path from `certs/`, so a monitoring policy
 can grant it alone.
+
+4.2.10. *v0.3.0, reusing keys:* with `reuse_key=true` in the definition, an issuance uses the
+current version's key, so the public key stays the same for consumers that pin it (DANE `3 1 1`,
+mTLS allow-lists). An imported certificate's key is reused too, so a certbot key survives the
+migration (§8). A new key is made when there is no usable current key, when the key type changes,
+and once after `certs/<name>/renew` with `rotate_key=true`; later renewals reuse that one.
+
+4.2.10.1. Each version holds its own copy of the key, so `destroy` takes either `versions` or
+`spki_sha256`. The latter destroys the key in every version holding it. Destroying by version warns
+when other versions still hold the same key.
+
+4.2.10.2. A key that any destroyed version held is never reused. Destroying a key also clears it from
+an attempt in flight, and an attempt that obtained a certificate for a key destroyed meanwhile does
+not store it: it fails and retries at once with a new key.
+
+4.2.10.3. A CA may refuse a key, for example one it has seen revoked for key compromise. Such a
+failure shows in `status`, and `renew rotate_key=true` moves on.
 
 Because the key and the description are on different paths, policies get the split that KV cannot
 give:
@@ -709,6 +726,8 @@ stored per version, so it needs no format change. OpenBao's PKI engine solved a 
 differently: CA certificates and keys are separate entries (`config/issuer/`, `config/key/`) linked
 by ID, so several issuers can share one key. That suits a CA, but it would split a version across
 entries and lose the single atomic write of §5.1.3.
+*Decided in v0.3.0:* `destroy` takes `spki_sha256` and destroys the key in every version that holds
+it (§4.2.10).
 
 ## References
 

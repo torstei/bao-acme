@@ -261,3 +261,23 @@ func (b *backend) recoverOrder(ctx context.Context, s logical.Storage, name stri
 	_, err = b.recordIssuance(ctx, s, name, &spec, bundle, nil, attempt)
 	return err
 }
+
+// clearInflightKey forgets an attempt's key if it is one of the destroyed
+// ones. The attempt cannot then be recovered, and its result will not be
+// stored. The caller holds the certificate's lock.
+func clearInflightKey(ctx context.Context, s logical.Storage, name string, destroyed map[string]bool) error {
+	e, err := loadInflight(ctx, s, name)
+	if err != nil || e == nil || e.Privkey == "" {
+		return err
+	}
+	key, err := cert.ParseKey(e.Privkey)
+	if err != nil {
+		return err
+	}
+	spki, err := cert.SPKISHA256(key.Public())
+	if err != nil || !destroyed[spki] {
+		return err
+	}
+	e.Privkey, e.OrderURL = "", ""
+	return putJSON(ctx, s, inflightKey(name), e)
+}
