@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/openbao/openbao/sdk/v2/helper/consts"
 	"github.com/openbao/openbao/sdk/v2/logical"
 
 	"github.com/torstei/bao-acme/internal/acmeclient"
@@ -303,6 +304,9 @@ func (b *backend) startIssuance(name string) bool {
 }
 
 func (b *backend) maintain(ctx context.Context, s logical.Storage, name string) error {
+	if b.standby() {
+		return nil
+	}
 	if err := b.recover(ctx, s, name); err != nil {
 		b.Logger().Warn("could not recover an interrupted attempt", "certificate", name, "error", err)
 	}
@@ -390,8 +394,19 @@ func loadCurrentLocked(ctx context.Context, s logical.Storage, name string) (*ce
 	return m, current, err
 }
 
-// periodic starts the issuances that are due. It runs on the active node.
+// standby reports whether this node only serves reads. OpenBao runs a
+// mount's periodic function on read-enabled standbys too, and work started
+// there would act on the DNS provider and the CA before failing at its
+// first write.
+func (b *backend) standby() bool {
+	return b.System().ReplicationState().HasState(consts.ReplicationPerformanceStandby | consts.ReplicationDRSecondary)
+}
+
+// periodic starts the issuances that are due, on the active node only.
 func (b *backend) periodic(ctx context.Context, req *logical.Request) error {
+	if b.standby() {
+		return nil
+	}
 	names, err := listNames(ctx, req.Storage)
 	if err != nil {
 		return err

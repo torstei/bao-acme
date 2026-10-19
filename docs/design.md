@@ -544,9 +544,16 @@ and new ones record the field.
 
 ## 6. Issuing and renewing (managed certificates)
 
-6.1. **On the active node only.** The plugin's `PeriodicFunc` (`sdk/framework/backend.go`) runs on
-the active node. It picks certificates that are due and starts their work in the background. It does
-not block the periodic call.
+6.1. **On the active node only.** The plugin's `PeriodicFunc` (`sdk/framework/backend.go`) picks
+certificates that are due and starts their work in the background. It does not block the periodic
+call.
+
+6.1.0. OpenBao 2.x also calls it on read-enabled standbys, which set up mounts read-only and mark
+themselves `ReplicationPerformanceStandby`. Work started there would act on the DNS provider and
+the CA before failing at its first write: in v0.4.0 a standby, taking the active node's attempt
+for an interrupted one, removed its challenge record (#37). So both the periodic function and
+each job first check `System().ReplicationState()`, and do nothing on a performance standby or a
+DR secondary, as OpenBao's PKI engine does.
 
 6.1.1. *Phase 3:* the periodic function runs every minute and starts an issuance for each
 certificate that needs one (§4.2.2) and is past its backoff. That is also what resumes work after a

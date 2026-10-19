@@ -6,9 +6,11 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/openbao/openbao/sdk/v2/helper/consts"
 	"github.com/openbao/openbao/sdk/v2/logical"
 
 	"github.com/torstei/bao-acme/internal/testcerts"
@@ -20,18 +22,37 @@ type harness struct {
 	storage logical.Storage
 	// account is where scoped maps certs/… and config/dns/… paths.
 	account string
+	// system is the backend's system view, to make the node a standby.
+	system *testSystem
+}
+
+// testSystem lets a test change the node's replication state while
+// background jobs read it.
+type testSystem struct {
+	*logical.StaticSystemView
+	state atomic.Uint32
+}
+
+func (s *testSystem) ReplicationState() consts.ReplicationState {
+	return consts.ReplicationState(s.state.Load())
+}
+
+func (s *testSystem) setState(state consts.ReplicationState) {
+	s.state.Store(uint32(state))
 }
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
 	conf := logical.TestBackendConfig()
 	conf.StorageView = &logical.InmemStorage{}
+	system := &testSystem{StaticSystemView: logical.TestSystemView()}
+	conf.System = system
 	b := New()
 	if err := b.Setup(context.Background(), conf); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(b.issuer.stop)
-	h := &harness{t: t, b: b, storage: conf.StorageView, account: "t"}
+	h := &harness{t: t, b: b, storage: conf.StorageView, account: "t", system: system}
 	h.ok(logical.CreateOperation, "config/accounts/t", nil)
 	return h
 }
