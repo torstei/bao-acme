@@ -34,7 +34,7 @@ type inflightEntry struct {
 	DefinedTime time.Time `json:"defined_time"`
 	Reason      string    `json:"reason"`
 	Account     string    `json:"account"`
-	DNSProvider string    `json:"dns_provider"`
+	DNS         string    `json:"dns_provider"`
 	// Privkey is the key the order's certificate is for; empty once only
 	// clean-up remains.
 	Privkey  string `json:"privkey,omitempty"`
@@ -238,16 +238,16 @@ func (b *backend) cleanupLeftovers(ctx context.Context, s logical.Storage, name 
 }
 
 func leftoverRemover(ctx context.Context, s logical.Storage, e *inflightEntry) (func(context.Context, publishedRecord) (bool, error), error) {
-	dnsEntry, _, err := ownedDNS(ctx, s, e.Account, e.DNSProvider)
+	dnsEntry, _, err := ownedDNS(ctx, s, e.Account, e.DNS)
 	if err != nil {
 		return nil, err
 	}
 	if dnsEntry == nil {
-		return nil, fmt.Errorf("account %q has no DNS provider named %q", e.Account, e.DNSProvider)
+		return nil, fmt.Errorf("account %q has no DNS provider named %q", e.Account, e.DNS)
 	}
-	spec, ok := dnsprovider.Lookup(dnsEntry.Provider)
+	spec, ok := dnsprovider.Lookup(dnsEntry.Type)
 	if !ok {
-		return nil, fmt.Errorf("unknown DNS provider %q", dnsEntry.Provider)
+		return nil, fmt.Errorf("unknown DNS provider %q", dnsEntry.Type)
 	}
 	n, err := loadNetwork(ctx, s)
 	if err != nil {

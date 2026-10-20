@@ -38,10 +38,10 @@ const (
 
 // managedSpec defines a certificate the engine obtains itself.
 type managedSpec struct {
-	Names       []string `json:"names"`
-	KeyType     string   `json:"key_type"`
-	Account     string   `json:"account"`
-	DNSProvider string   `json:"dns_provider"`
+	Names   []string `json:"names"`
+	KeyType string   `json:"key_type"`
+	Account string   `json:"account"`
+	DNS     string   `json:"dns_provider"`
 	// ReuseKey renews with the current version's key, so its public key
 	// stays the same for consumers that pin it.
 	ReuseKey    bool      `json:"reuse_key,omitempty"`
@@ -533,7 +533,7 @@ func (b *backend) claimIssuance(ctx context.Context, s logical.Storage, name str
 	// attempt could not remove.
 	inflight := &inflightEntry{
 		StartTime: now, DefinedTime: m.Managed.DefinedTime, Reason: reason,
-		Account: m.Managed.Account, DNSProvider: m.Managed.DNSProvider, Privkey: claim.keyPEM,
+		Account: m.Managed.Account, DNS: m.Managed.DNS, Privkey: claim.keyPEM,
 	}
 	if prev, err := loadInflight(ctx, s, name); err != nil {
 		return nil, err
@@ -573,12 +573,12 @@ func (b *backend) obtain(ctx context.Context, s logical.Storage, name string, cl
 	if err != nil {
 		return nil, err
 	}
-	dnsEntry, _, err := ownedDNS(ctx, s, spec.Account, spec.DNSProvider)
+	dnsEntry, _, err := ownedDNS(ctx, s, spec.Account, spec.DNS)
 	if err != nil {
 		return nil, err
 	}
 	if dnsEntry == nil {
-		return nil, fmt.Errorf("account %q has no DNS provider named %q", spec.Account, spec.DNSProvider)
+		return nil, fmt.Errorf("account %q has no DNS provider named %q", spec.Account, spec.DNS)
 	}
 	provider, err := dnsEntry.provider(n)
 	if err != nil {

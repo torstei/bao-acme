@@ -141,7 +141,7 @@ publish an `issue` record with its account URL, or certbot is refused.
 
 | Path | Method | |
 |---|---|---|
-| `accounts/<account>/dns/<name>` | write | `provider` (`domeneshop`, `cloudflare` or `dnsupdate` for RFC 2136), then that provider's settings; credentials are write-only. `bao path-help certificates/accounts/x/dns/y` lists them. Only this account's certificates can use it. |
+| `accounts/<account>/dns/<name>` | write | `type` (`domeneshop`, `cloudflare` or `dnsupdate` for RFC 2136), then that provider's settings; credentials are write-only. `bao path-help certificates/accounts/x/dns/y` lists them. Only this account's certificates can use it. |
 | `accounts/<account>/dns/<name>` | read | Settings, `<secret>_set` flags, and `egress`: where the provider connects. |
 | `accounts/<account>/dns/<name>` | delete | Refused while a certificate uses it, or still needs it to remove leftover challenge records. |
 | `accounts/<account>/dns/` | list | Names. |
@@ -150,7 +150,7 @@ publish an `issue` record with its account URL, or certbot is refused.
 
 | Path | Method | |
 |---|---|---|
-| `accounts/<account>/certs/<name>` | write | A managed certificate: `names`, `dns_provider` (one of this account's), optionally `key_type` (default `ecdsa-p256`) and `reuse_key` (renew with the same key, for consumers that pin it). Returns at once; the certificate is obtained in the background. An imported certificate under the same name keeps its versions. |
+| `accounts/<account>/certs/<name>` | write | A managed certificate: `names`, `dns` (one of this account's DNS providers), optionally `key_type` (default `ecdsa-p256`) and `reuse_key` (renew with the same key, for consumers that pin it). Returns at once; the certificate is obtained in the background. An imported certificate under the same name keeps its versions. |
 | `accounts/<account>/certs/<name>` | read | Current version: `fullchain`, `certificate`, `chain`, `privkey` and the description. |
 | `accounts/<account>/certs/<name>` | delete | The certificate and all its versions. |
 | `…/certs/<name>/import` | write | `fullchain`, `privkey` (PEM), optional `max_versions` (default 3). An import identical to the current version writes nothing (`written: false`). |
@@ -180,8 +180,8 @@ tried again.
 bao write certificates/config/accounts/team-a directory_url=letsencrypt email=ops@example.com terms_of_service_agreed=true
 bao write -f certificates/config/accounts/team-a/register   # optional: done at the first issuance
 bao read -field=caa_records certificates/config/accounts/team-a
-bao write certificates/accounts/team-a/dns/team-a-domeneshop provider=domeneshop api_token=… api_secret=…
-bao write certificates/accounts/team-a/certs/team-a-www names=example.com,*.example.com dns_provider=team-a-domeneshop
+bao write certificates/accounts/team-a/dns/team-a-domeneshop type=domeneshop api_token=… api_secret=…
+bao write certificates/accounts/team-a/certs/team-a-www names=example.com,*.example.com dns=team-a-domeneshop
 bao read  certificates/accounts/team-a/certs/team-a-www/status
 bao write -f certificates/accounts/team-a/certs/team-a-www/renew   # later, to renew ahead of schedule
 ```

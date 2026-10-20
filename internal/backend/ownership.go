@@ -150,7 +150,7 @@ func dnsInUse(ctx context.Context, s logical.Storage, provider string) ([]string
 		if err != nil {
 			return nil, err
 		}
-		if m != nil && m.Managed != nil && m.Managed.DNSProvider == provider {
+		if m != nil && m.Managed != nil && m.Managed.DNS == provider {
 			users = append(users, name)
 			continue
 		}
@@ -158,7 +158,7 @@ func dnsInUse(ctx context.Context, s logical.Storage, provider string) ([]string
 		if err != nil {
 			return nil, err
 		}
-		if i != nil && i.DNSProvider == provider && len(i.Published) > 0 {
+		if i != nil && i.DNS == provider && len(i.Published) > 0 {
 			users = append(users, name+" (leftover challenge records)")
 		}
 	}

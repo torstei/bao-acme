@@ -366,7 +366,7 @@ func TestIntegration(t *testing.T) {
 
 	t.Run("DNS credentials stay inside", func(t *testing.T) {
 		if _, err := c.client.Logical().Write(mount+"/accounts/team-a/dns/domeneshop", map[string]any{
-			"provider":   "domeneshop",
+			"type":       "domeneshop",
 			"api_token":  "dns-tok3n",
 			"api_secret": "dns-s3cret",
 		}); err != nil {
@@ -387,10 +387,10 @@ func TestIntegration(t *testing.T) {
 				"directory_url":           "https://127.0.0.1:1/directory",
 				"terms_of_service_agreed": true,
 			},
-			"accounts/unreachable/dns/bind": {"provider": "dnsupdate", "nameserver": "127.0.0.1"},
+			"accounts/unreachable/dns/bind": {"type": "dnsupdate", "nameserver": "127.0.0.1"},
 			"accounts/unreachable/certs/background": {
-				"names":        "www.example.test",
-				"dns_provider": "bind",
+				"names": "www.example.test",
+				"dns":   "bind",
 			},
 		}
 		for _, path := range []string{"config/accounts/unreachable", "accounts/unreachable/dns/bind", "accounts/unreachable/certs/background"} {

@@ -17,7 +17,7 @@ import (
 func (e *managedEnv) defineReusing(name string, names ...string) {
 	e.t.Helper()
 	e.ok(logical.CreateOperation, "certs/"+name, map[string]any{
-		"names": strings.Join(names, ","), "dns_provider": "bind", "reuse_key": true,
+		"names": strings.Join(names, ","), "dns": "bind", "reuse_key": true,
 	})
 }
 

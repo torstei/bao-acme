@@ -63,24 +63,24 @@ func (b *backend) define(ctx context.Context, s logical.Storage, account, name s
 		}
 		spec.KeyType = raw.(string)
 	}
-	if raw, ok := d.GetOk("dns_provider"); ok {
-		spec.DNSProvider = raw.(string)
+	if raw, ok := d.GetOk("dns"); ok {
+		spec.DNS = raw.(string)
 	}
 	if raw, ok := d.GetOk("reuse_key"); ok {
 		spec.ReuseKey = raw.(bool)
 	}
-	if spec.DNSProvider == "" {
-		return logical.ErrorResponse("dns_provider is required to manage a certificate"), false, logical.ErrInvalidRequest
+	if spec.DNS == "" {
+		return logical.ErrorResponse("dns is required to manage a certificate"), false, logical.ErrInvalidRequest
 	}
 	if a, err := loadAccount(ctx, s, account); err != nil {
 		return nil, false, err
 	} else if a.DirectoryURL == "" {
 		return logical.ErrorResponse("account %q has no directory_url, so it can hold only imported certificates", account), false, logical.ErrInvalidRequest
 	}
-	if e, _, err := ownedDNS(ctx, s, account, spec.DNSProvider); err != nil {
+	if e, _, err := ownedDNS(ctx, s, account, spec.DNS); err != nil {
 		return nil, false, err
 	} else if e == nil {
-		return logical.ErrorResponse("account %q has no DNS provider named %q", account, spec.DNSProvider), false, logical.ErrInvalidRequest
+		return logical.ErrorResponse("account %q has no DNS provider named %q", account, spec.DNS), false, logical.ErrInvalidRequest
 	}
 	if raw, ok := d.GetOk("max_versions"); ok {
 		if raw.(int) < 1 {
@@ -120,7 +120,7 @@ func (b *backend) define(ctx context.Context, s logical.Storage, account, name s
 }
 
 func sameDefinition(a, b *managedSpec) bool {
-	return slices.Equal(a.Names, b.Names) && a.KeyType == b.KeyType && a.Account == b.Account && a.DNSProvider == b.DNSProvider
+	return slices.Equal(a.Names, b.Names) && a.KeyType == b.KeyType && a.Account == b.Account && a.DNS == b.DNS
 }
 
 func (b *backend) handleUnmanage(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {

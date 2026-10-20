@@ -30,7 +30,7 @@ func TestNoBackgroundWorkOnAStandby(t *testing.T) {
 	}
 	inflight := &inflightEntry{
 		StartTime: time.Now().UTC(), DefinedTime: spec.DefinedTime, Reason: "no certificate yet",
-		Account: "le", DNSProvider: "bind",
+		Account: "le", DNS: "bind",
 		Published: []publishedRecord{{Domain: "www.example.test", Token: "tok", KeyAuth: testKeyAuth, PublishedTime: time.Now().UTC()}},
 	}
 	if err := putJSON(ctx, e.storage, inflightKey("www"), inflight); err != nil {
