@@ -118,3 +118,65 @@ func TestResolveDirectoryURL(t *testing.T) {
 		}
 	}
 }
+
+func TestContactCurrent(t *testing.T) {
+	cases := []struct {
+		contact     []string
+		email, sent string
+		want        bool
+	}{
+		{nil, "", "", true},
+		{[]string{"mailto:a@example.com"}, "a@example.com", "", true},
+		{[]string{"mailto:A@example.com"}, "a@example.com", "", true},
+		{[]string{"mailto:a@example.com"}, "b@example.com", "a@example.com", false},
+		{[]string{"mailto:a@example.com"}, "", "a@example.com", false},
+		{nil, "a@example.com", "a@example.com", true},
+		{nil, "a@example.com", "", false},
+		{nil, "b@example.com", "a@example.com", false},
+	}
+	for _, c := range cases {
+		if got := ContactCurrent(c.contact, c.email, c.sent); got != c.want {
+			t.Errorf("ContactCurrent(%v, %q, %q) = %v", c.contact, c.email, c.sent, got)
+		}
+	}
+}
+
+// TestCAKeepingNoContact: Let's Encrypt keeps no contact, so an address the
+// CA has been given once is not sent again on every refresh.
+func TestCAKeepingNoContact(t *testing.T) {
+	p := acmetest.Start(t, acmetest.Options{KeepNoContact: true})
+	a := newAccount(t, p)
+	ctx := context.Background()
+
+	reg, _, err := Register(ctx, a, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reg.Contact) != 0 || reg.ContactSent != testEmail {
+		t.Fatalf("registration = %+v", reg)
+	}
+	a.AccountURL, a.ContactSent = reg.AccountURL, reg.ContactSent
+
+	for range 2 {
+		refreshed, _, err := Refresh(ctx, a)
+		if err != nil {
+			t.Fatal(err)
+		}
+		a.ContactSent = refreshed.ContactSent
+	}
+	if n := p.ContactUpdates(); n != 0 {
+		t.Errorf("sent the unchanged address %d times", n)
+	}
+
+	a.Email = "new@example.com"
+	for range 2 {
+		refreshed, _, err := Refresh(ctx, a)
+		if err != nil {
+			t.Fatal(err)
+		}
+		a.ContactSent = refreshed.ContactSent
+	}
+	if n := p.ContactUpdates(); n != 1 || a.ContactSent != "new@example.com" {
+		t.Errorf("a changed address: %d updates, sent %q", n, a.ContactSent)
+	}
+}

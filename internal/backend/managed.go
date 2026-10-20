@@ -646,6 +646,7 @@ func (b *backend) registeredAccount(ctx context.Context, s logical.Storage, name
 		AccountURL:     reg.AccountURL,
 		Status:         reg.Status,
 		Contact:        reg.Contact,
+		ContactSent:    reg.ContactSent,
 		TermsOfService: reg.TermsOfService,
 		CAAIdentities:  reg.CAAIdentities,
 		RegisteredTime: now,

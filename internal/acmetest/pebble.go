@@ -5,11 +5,18 @@
 package acmetest
 
 import (
+	"bytes"
 	"crypto/x509"
+	"encoding/base64"
+	"encoding/json"
 	"encoding/pem"
 	"io"
 	"log"
+	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/letsencrypt/pebble/v2/ca"
@@ -27,6 +34,9 @@ type Options struct {
 	Log io.Writer
 	// Resolver, as host:port, is where Pebble looks up DNS-01 records.
 	Resolver string
+	// KeepNoContact leaves the contact out of account responses, as Let's
+	// Encrypt does.
+	KeepNoContact bool
 }
 
 // Pebble is a running server.
@@ -37,6 +47,14 @@ type Pebble struct {
 	CA *x509.Certificate
 	// CAPEM is CA as PEM.
 	CAPEM string
+
+	contactUpdates atomic.Int32
+}
+
+// ContactUpdates counts requests that changed an existing account's
+// contact.
+func (p *Pebble) ContactUpdates() int {
+	return int(p.contactUpdates.Load())
 }
 
 // Start runs Pebble until the test ends.
@@ -65,13 +83,61 @@ func Start(t testing.TB, opts Options) *Pebble {
 	}
 	front := wfe.New(logger, store, validator, authority, []string{"pebble.letsencrypt.org"}, false, opts.RequireEAB, 0, 0)
 
-	srv := httptest.NewTLSServer(front.Handler())
+	p := &Pebble{}
+	handler := front.Handler()
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/my-account/") && r.URL.Path != "/sign-me-up" {
+			handler.ServeHTTP(w, r)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		if strings.HasPrefix(r.URL.Path, "/my-account/") && jwsHasContact(body) {
+			p.contactUpdates.Add(1)
+		}
+		if !opts.KeepNoContact {
+			handler.ServeHTTP(w, r)
+			return
+		}
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, r)
+		out := rec.Body.Bytes()
+		var account map[string]any
+		if json.Unmarshal(out, &account) == nil {
+			delete(account, "contact")
+			out, _ = json.Marshal(account)
+		}
+		for k, v := range rec.Header() {
+			w.Header()[k] = v
+		}
+		w.Header().Set("Content-Length", strconv.Itoa(len(out)))
+		w.WriteHeader(rec.Code)
+		_, _ = w.Write(out)
+	}))
 	t.Cleanup(srv.Close)
 
 	c := srv.Certificate()
-	return &Pebble{
-		DirectoryURL: srv.URL + "/dir",
-		CA:           c,
-		CAPEM:        string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: c.Raw})),
+	p.DirectoryURL = srv.URL + "/dir"
+	p.CA = c
+	p.CAPEM = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: c.Raw}))
+	return p
+}
+
+func jwsHasContact(body []byte) bool {
+	var jws struct {
+		Payload string `json:"payload"`
 	}
+	if json.Unmarshal(body, &jws) != nil {
+		return false
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(jws.Payload)
+	if err != nil {
+		return false
+	}
+	var update map[string]any
+	if json.Unmarshal(payload, &update) != nil {
+		return false
+	}
+	_, ok := update["contact"]
+	return ok
 }

@@ -133,6 +133,12 @@ changed, and its status refreshed. Registration is refused until `terms_of_servi
 and the refusal names the CA's terms of service URL. Registering on first use comes with issuance
 (phase 3).
 
+4.1.3.1. A CA may keep no contact. Let's Encrypt has kept none since June 2025: it forwards the
+address to ISRG's mailing list and returns accounts without one. The engine records the address it
+last gave the CA (`contact_sent`). An empty contact from the CA then counts as current if
+`contact_sent` is the configured `email`, so the address is neither sent again on every `register`
+nor reported as differing. A changed `email` is still sent, once.
+
 4.1.4. `directory_url`, `key_type` and EAB cannot change once they are bound: `key_type` from
 creation, the others from registration. Changing them means a new account.
 
@@ -453,7 +459,7 @@ wrote, both on upgrade and when restoring an old Raft snapshot.
 |---|---|
 | `certs/<name>/meta` | Which version is current, the latest version number, `max_versions`, and for a managed certificate its `managed` definition and `issuance` state. |
 | `certs/<name>/versions/<n>` | One version: certificate, chain, key and description, in one entry. |
-| `config/accounts/<name>` | An ACME account: its settings, its key (PKCS #8 PEM), and, once registered, a `registration` object with the account URL, status, contact and terms of service URL. |
+| `config/accounts/<name>` | An ACME account: its settings, its key (PKCS #8 PEM), and, once registered, a `registration` object with the account URL, status, contact, the address last sent to the CA (`contact_sent`) and terms of service URL. |
 | `config/network` | The proxy URL, credentials included, `proxy_ca_bundle`, and the DNS settings of §7.1.7. Absent means direct connections and the defaults. |
 | `config/dns/<name>` | A DNS provider: `provider`, a `settings` object with its fields, credentials included, and the common timing settings. |
 | `certs/<name>/inflight` | While an attempt runs, or after it was interrupted: the attempt's private key, its definition, the order URL, and the challenge records not yet removed (§6.2.2). |
