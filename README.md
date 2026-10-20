@@ -120,6 +120,9 @@ Paths are relative to the mount. An account's **settings** are under `config/acc
 everything **done with** the account is under `accounts/<account>/`. Certificate and DNS provider
 names are unique per mount: writing a name another account owns is refused.
 
+A write that takes no fields, such as `register`, `renew` or `unmanage`, needs `bao write -f`;
+without it, `bao` stops with "Must supply data or use -force".
+
 ### Accounts (the operator)
 
 | Path | Method | |
@@ -175,9 +178,12 @@ tried again.
 
 ```sh
 bao write certificates/config/accounts/team-a directory_url=letsencrypt email=ops@example.com terms_of_service_agreed=true
+bao write -f certificates/config/accounts/team-a/register   # optional: done at the first issuance
+bao read -field=caa_records certificates/config/accounts/team-a
 bao write certificates/accounts/team-a/dns/team-a-domeneshop provider=domeneshop api_token=… api_secret=…
 bao write certificates/accounts/team-a/certs/team-a-www names=example.com,*.example.com dns_provider=team-a-domeneshop
 bao read  certificates/accounts/team-a/certs/team-a-www/status
+bao write -f certificates/accounts/team-a/certs/team-a-www/renew   # later, to renew ahead of schedule
 ```
 
 ### Outgoing traffic
