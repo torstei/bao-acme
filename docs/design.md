@@ -268,6 +268,14 @@ running needs the persisted state machine (#9).
 anything failing or about to expire". It is a separate path from `certs/`, so a monitoring policy
 can grant it alone.
 
+4.2.9.1. *v0.5.0:* it shows the facts a person needs to see what is wrong, with no interpretation
+of its own. A failing certificate also has `failing_since`, when its current run of failures began
+(stored in the issuance state), and `last_error`. A certificate whose challenge records could not
+be removed has `leftovers`, each with `domain`, `published_time` and `cleanup_error`, since those do
+not affect its state. `accounts` lists every account, including those without certificates, with
+`registered`, its `status` at the CA and `terms_of_service_agreed`. An account's `status` gives the
+same for that account alone. Its shape is otherwise unchanged until monitoring is decided (#45).
+
 4.2.10. *v0.3.0, reusing keys:* with `reuse_key=true` in the definition, an issuance uses the
 current version's key, so the public key stays the same for consumers that pin it (DANE `3 1 1`,
 mTLS allow-lists). An imported certificate's key is reused too, so a certbot key survives the

@@ -54,6 +54,8 @@ type issuanceState struct {
 	LastSuccessTime time.Time `json:"last_success_time,omitzero"`
 	LastError       string    `json:"last_error,omitempty"`
 	Failures        int       `json:"failures,omitempty"`
+	// FailingSince is when the current run of failures began.
+	FailingSince    time.Time `json:"failing_since,omitzero"`
 	NextAttemptTime time.Time `json:"next_attempt_time,omitzero"`
 	// RenewRequested is set by certs/<name>/renew until a certificate is
 	// stored.
@@ -66,6 +68,25 @@ type issuanceState struct {
 }
 
 const maxAttempts = 10
+
+// markFailing records when the current run of failures began, before an
+// attempt starting at start is counted as failed. Entries written before
+// failing_since existed take it from the attempt history.
+func (st *issuanceState) markFailing(start time.Time) {
+	if !st.FailingSince.IsZero() {
+		return
+	}
+	st.FailingSince = start
+	if st.Failures == 0 {
+		return
+	}
+	for _, a := range st.Attempts {
+		if a.Outcome != "failed" {
+			break
+		}
+		st.FailingSince = a.StartTime
+	}
+}
 
 // attemptRecord is one finished attempt to obtain a certificate.
 type attemptRecord struct {
@@ -693,6 +714,7 @@ func (b *backend) recordIssuance(ctx context.Context, s logical.Storage, name st
 		if len(msg) > maxErrorLength {
 			msg = msg[:maxErrorLength]
 		}
+		m.Issuance.markFailing(attempt.StartTime)
 		m.Issuance.Failures++
 		m.Issuance.LastError = msg
 		m.Issuance.NextAttemptTime = now.Add(backoff(m.Issuance.Failures))
@@ -708,6 +730,7 @@ func (b *backend) recordIssuance(ctx context.Context, s logical.Storage, name st
 		return false, err
 	} else if destroyed {
 		msg := "the key was destroyed while the certificate was being obtained, so it is not stored"
+		m.Issuance.markFailing(attempt.StartTime)
 		m.Issuance.Failures++
 		m.Issuance.LastError = msg
 		m.Issuance.NextAttemptTime = time.Time{}

@@ -88,6 +88,11 @@ func TestStatusRecordsAttempts(t *testing.T) {
 	if s.Data["state"] != stateValid || s.Data["version"] != 1 || s.Data["renew_at"] == nil {
 		t.Errorf("status = %v", s.Data)
 	}
+	for _, k := range []string{"failing_since", "last_error"} {
+		if _, ok := e.ok(logical.ReadOperation, "status", nil).Data["certificates"].(map[string]any)["www"].(map[string]any)[k]; ok {
+			t.Errorf("mount status of an issued certificate shows %s", k)
+		}
+	}
 	attempts := s.Data["attempts"].([]map[string]any)
 	if len(attempts) != 1 || attempts[0]["outcome"] != "issued" || attempts[0]["version"] != 1 || attempts[0]["reason"] != "no certificate yet" {
 		t.Fatalf("attempts = %v", attempts)
@@ -107,6 +112,10 @@ func TestStatusRecordsAttempts(t *testing.T) {
 	attempts = s.Data["attempts"].([]map[string]any)
 	if len(attempts) != 2 || attempts[0]["outcome"] != "failed" || attempts[0]["error"] == "" || attempts[0]["reason"] != "the current certificate does not match the definition" || attempts[1]["outcome"] != "issued" {
 		t.Errorf("attempts, newest first = %v", attempts)
+	}
+	mount := e.ok(logical.ReadOperation, "status", nil).Data["certificates"].(map[string]any)["www"].(map[string]any)
+	if mount["failing_since"] != attempts[0]["start_time"] || mount["last_error"] != attempts[0]["error"] {
+		t.Errorf("mount status of a failing certificate = %v", mount)
 	}
 
 	e.define("www", "www.example.test", "api.example.test")
@@ -142,6 +151,80 @@ func TestMountStatus(t *testing.T) {
 	certs := s.Data["certificates"].(map[string]any)
 	if certs["soon"].(map[string]any)["state"] != stateExpired {
 		t.Errorf("certificates = %v", certs)
+	}
+}
+
+func TestMountStatusShowsAccountsAndLeftovers(t *testing.T) {
+	h := newHarness(t)
+	h.ok(logical.CreateOperation, "config/accounts/empty", nil)
+	h.imp("a", testcerts.New(t, testcerts.Options{}))
+	published := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+	if err := putJSON(context.Background(), h.storage, inflightKey("a"), &inflightEntry{
+		Account: "t", DNS: "bind", NextCleanupTime: time.Now().Add(time.Hour),
+		Published: []publishedRecord{{Domain: "a.example.test", Token: "tok", PublishedTime: published, CleanupError: "refused"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	s := h.ok(logical.ReadOperation, "status", nil)
+	accounts := s.Data["accounts"].(map[string]any)
+	if len(accounts) != 2 || accounts["empty"] == nil {
+		t.Errorf("accounts = %v", accounts)
+	}
+	if a := accounts["t"].(map[string]any); a["registered"] != false || a["terms_of_service_agreed"] != false {
+		t.Errorf("account t = %v", a)
+	}
+	cert := s.Data["certificates"].(map[string]any)["a"].(map[string]any)
+	leftovers, _ := cert["leftovers"].([]map[string]any)
+	if len(leftovers) != 1 || leftovers[0]["domain"] != "a.example.test" || leftovers[0]["cleanup_error"] != "refused" || leftovers[0]["published_time"] != published {
+		t.Errorf("leftovers = %v", cert["leftovers"])
+	}
+	for _, k := range []string{"failing_since", "last_error"} {
+		if _, ok := cert[k]; ok {
+			t.Errorf("a certificate that is not failing shows %s", k)
+		}
+	}
+
+	if got := h.ok(logical.ReadOperation, "accounts/t/status", nil).Data["accounts"].(map[string]any); len(got) != 1 || got["t"] == nil {
+		t.Errorf("the account's status shows accounts %v", got)
+	}
+
+	h.b.issuer.mu.Lock()
+	h.b.issuer.running["a"] = &job{Since: time.Now(), Reason: "a renewal was requested"}
+	h.b.issuer.mu.Unlock()
+	cert = h.ok(logical.ReadOperation, "status", nil).Data["certificates"].(map[string]any)["a"].(map[string]any)
+	if _, ok := cert["leftovers"]; ok {
+		t.Error("a running attempt's records are shown as leftovers")
+	}
+}
+
+func TestMarkFailing(t *testing.T) {
+	t0 := time.Now().UTC()
+	at := func(h int) time.Time { return t0.Add(time.Duration(h) * time.Hour) }
+
+	st := &issuanceState{}
+	st.markFailing(at(5))
+	if !st.FailingSince.Equal(at(5)) {
+		t.Errorf("first failure: %v", st.FailingSince)
+	}
+	st.Failures = 1
+	st.markFailing(at(6))
+	if !st.FailingSince.Equal(at(5)) {
+		t.Errorf("a later failure moved failing_since: %v", st.FailingSince)
+	}
+
+	old := &issuanceState{Failures: 2, Attempts: []attemptRecord{
+		{StartTime: at(4), Outcome: "failed"}, {StartTime: at(3), Outcome: "failed"}, {StartTime: at(1), Outcome: "issued"},
+	}}
+	old.markFailing(at(5))
+	if !old.FailingSince.Equal(at(3)) {
+		t.Errorf("from the history: %v, want the run's first failure", old.FailingSince)
+	}
+
+	redefined := &issuanceState{Attempts: []attemptRecord{{StartTime: at(4), Outcome: "failed"}}}
+	redefined.markFailing(at(5))
+	if !redefined.FailingSince.Equal(at(5)) {
+		t.Errorf("after a redefinition: %v, want the new failure", redefined.FailingSince)
 	}
 }
 
