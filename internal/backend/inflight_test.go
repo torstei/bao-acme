@@ -131,7 +131,8 @@ func TestCleansUpLeftoverRecords(t *testing.T) {
 	if err := provider.Present(context.Background(), "www.example.test", "tok", testKeyAuth); err != nil {
 		t.Fatal(err)
 	}
-	if got := e.dns.TXT("_acme-challenge.www.example.test"); len(got) != 1 {
+	e.dns.SetTXT("_acme-challenge.www.example.test", "someone else's")
+	if got := e.dns.TXT("_acme-challenge.www.example.test"); len(got) != 2 {
 		t.Fatalf("setup: TXT = %v", got)
 	}
 	if err := putJSON(context.Background(), e.storage, inflightKey("www"), &inflightEntry{
@@ -149,11 +150,39 @@ func TestCleansUpLeftoverRecords(t *testing.T) {
 	if i := e.inflight("www"); i != nil {
 		t.Fatalf("in-flight entry kept: %+v", i)
 	}
-	if got := e.dns.TXT("_acme-challenge.www.example.test"); len(got) != 0 {
-		t.Errorf("leftover record not removed: %v", got)
+	if got := e.dns.TXT("_acme-challenge.www.example.test"); len(got) != 1 || got[0] != "someone else's" {
+		t.Errorf("TXT after clean-up = %v, want only someone else's", got)
 	}
 	if m, _ := loadMeta(context.Background(), e.storage, "www"); m.CurrentVersion != 1 {
 		t.Error("cleaning up issued a certificate that was not due")
+	}
+}
+
+// TestLeftoverAlreadyGoneIsDropped: a record the provider no longer has is
+// done with, even though removing it would now fail.
+func TestLeftoverAlreadyGoneIsDropped(t *testing.T) {
+	e := newManagedEnv(t)
+	e.imp("www", testcerts.New(t, testcerts.Options{Names: []string{"www.example.test"}}))
+	spec := e.defineQuietly("www", "www.example.test")
+	e.ok(logical.UpdateOperation, "config/dns/bind", map[string]any{"tsig_secret": "d3Jvbmd3cm9uZ3dyb25nd3Jvbmd3cm9uZw=="})
+	e.dns.SetTXT("_acme-challenge.www.example.test", "someone else's")
+	if err := putJSON(context.Background(), e.storage, inflightKey("www"), &inflightEntry{
+		StartTime: time.Now().UTC(), DefinedTime: spec.DefinedTime, Account: "le", DNSProvider: "bind",
+		Published: []publishedRecord{{Domain: "www.example.test", Token: "tok", KeyAuth: testKeyAuth, PublishedTime: time.Now().UTC()}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	e.periodic()
+	deadline := time.Now().Add(10 * time.Second)
+	for e.inflight("www") != nil && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if i := e.inflight("www"); i != nil {
+		t.Fatalf("in-flight entry kept: %+v", i)
+	}
+	if got := e.dns.TXT("_acme-challenge.www.example.test"); len(got) != 1 {
+		t.Errorf("TXT = %v", got)
 	}
 }
 
@@ -161,6 +190,11 @@ func TestLeftoverThatCannotBeRemovedIsKeptAndShown(t *testing.T) {
 	e := newManagedEnv(t)
 	e.imp("www", testcerts.New(t, testcerts.Options{Names: []string{"www.example.test"}}))
 	spec := e.defineQuietly("www", "www.example.test")
+	dnsEntry, _ := loadDNS(context.Background(), e.storage, "bind")
+	provider, _ := dnsEntry.provider(&networkEntry{})
+	if err := provider.Present(context.Background(), "www.example.test", "tok", testKeyAuth); err != nil {
+		t.Fatal(err)
+	}
 	e.ok(logical.UpdateOperation, "config/dns/bind", map[string]any{"tsig_secret": "d3Jvbmd3cm9uZ3dyb25nd3Jvbmd3cm9uZw=="})
 	if err := putJSON(context.Background(), e.storage, inflightKey("www"), &inflightEntry{
 		StartTime: time.Now().UTC(), DefinedTime: spec.DefinedTime, Account: "le", DNSProvider: "bind",
@@ -178,7 +212,7 @@ func TestLeftoverThatCannotBeRemovedIsKeptAndShown(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	i := e.inflight("www")
-	if i == nil || len(i.Published) != 1 || i.Published[0].CleanupError == "" || i.NextCleanupTime.Sub(time.Now()) < 50*time.Minute {
+	if i == nil || len(i.Published) != 1 || i.Published[0].CleanupError == "" || i.NextCleanupTime.Sub(time.Now()) < cleanupRetry-time.Minute || i.NextCleanupTime.Sub(time.Now()) > cleanupRetry {
 		t.Fatalf("in-flight entry = %+v", i)
 	}
 
@@ -195,7 +229,7 @@ func TestLeftoverThatCannotBeRemovedIsKeptAndShown(t *testing.T) {
 	e.periodic()
 	time.Sleep(200 * time.Millisecond)
 	if again := e.inflight("www"); !again.NextCleanupTime.Equal(i.NextCleanupTime) {
-		t.Error("retried the clean-up before an hour had passed")
+		t.Error("retried the clean-up before it was due")
 	}
 }
 
@@ -218,6 +252,18 @@ func TestUnrecoverableOrderIsDropped(t *testing.T) {
 	}
 	if i := e.inflight("www"); i != nil {
 		t.Errorf("in-flight entry kept: %+v", i)
+	}
+}
+
+func TestCleanupDelay(t *testing.T) {
+	now := time.Now()
+	recent := publishedRecord{PublishedTime: now.Add(-10 * time.Minute)}
+	old := publishedRecord{PublishedTime: now.Add(-2 * time.Hour)}
+	if got := cleanupDelay([]publishedRecord{old, recent}, now); got != cleanupRetry {
+		t.Errorf("with a recent record: %v", got)
+	}
+	if got := cleanupDelay([]publishedRecord{old}, now); got != cleanupRetrySlow {
+		t.Errorf("with only old records: %v", got)
 	}
 }
 

@@ -82,15 +82,6 @@ func Obtain(ctx context.Context, a *Account, provider challenge.Provider, order 
 		return nil, err
 	}
 
-	dnsMu.Lock()
-	defer dnsMu.Unlock()
-	prev := dns01.DefaultClient()
-	dns01.SetDefaultClient(dns01.NewClient(&dns01.Options{
-		RecursiveNameservers: resolvers,
-		TCPOnly:              settings.TCPOnly,
-	}))
-	defer dns01.SetDefaultClient(prev)
-
 	req := certificate.ObtainRequest{
 		Domains:    order.Names,
 		PrivateKey: order.Key,
@@ -101,11 +92,34 @@ func Obtain(ctx context.Context, a *Account, provider challenge.Provider, order 
 			return nil, err
 		}
 	}
-	res, err := client.Certificate.Obtain(ctx, req)
+	var res *certificate.Resource
+	err = WithDNS(settings, func() error {
+		res, err = client.Certificate.Obtain(ctx, req)
+		return err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("obtaining a certificate: %w", err)
 	}
 	return res.Certificate, nil
+}
+
+// WithDNS runs fn with lego's process-wide DNS client using settings'
+// resolvers, so that the lookups lego and the providers make go where
+// config/network says. Such calls run one at a time.
+func WithDNS(settings DNSSettings, fn func() error) error {
+	resolvers := settings.EffectiveResolvers()
+	if len(resolvers) == 0 {
+		return ErrNoResolvers
+	}
+	dnsMu.Lock()
+	defer dnsMu.Unlock()
+	prev := dns01.DefaultClient()
+	dns01.SetDefaultClient(dns01.NewClient(&dns01.Options{
+		RecursiveNameservers: resolvers,
+		TCPOnly:              settings.TCPOnly,
+	}))
+	defer dns01.SetDefaultClient(prev)
+	return fn()
 }
 
 func propagationOptions(d DNSSettings) dns01.ChallengeOption {

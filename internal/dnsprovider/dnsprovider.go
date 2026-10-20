@@ -6,6 +6,7 @@
 package dnsprovider
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -47,8 +48,9 @@ type Spec struct {
 	// HTTP providers take the engine's HTTP client, so they use its proxy.
 	HTTP bool
 
-	check func(Settings) error
-	build func(Settings, Common, *http.Client) (challenge.Provider, error)
+	check  func(Settings) error
+	build  func(Settings, Common, *http.Client) (challenge.Provider, error)
+	remove func(context.Context, Settings, Common, *http.Client, challengeRecord) (bool, error)
 }
 
 var specs = map[string]*Spec{}
@@ -125,9 +127,13 @@ func (s *Spec) Build(settings Settings, common Common, httpClient *http.Client) 
 		return nil, errors.New("ttl, propagation_timeout and polling_interval cannot be negative")
 	}
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 30 * time.Second}
+		httpClient = defaultHTTPClient()
 	}
 	return s.build(settings, common, httpClient)
+}
+
+func defaultHTTPClient() *http.Client {
+	return &http.Client{Timeout: 30 * time.Second}
 }
 
 func orDefault[T comparable](v, def T) T {

@@ -14,9 +14,16 @@ import (
 
 	"github.com/torstei/bao-acme/internal/acmeclient"
 	"github.com/torstei/bao-acme/internal/cert"
+	"github.com/torstei/bao-acme/internal/dnsprovider"
 )
 
-const cleanupRetry = time.Hour
+// Leftover records are retried soon while they are recent, as most
+// failures then are passing ones, and hourly after that.
+const (
+	cleanupRetry     = 5 * time.Minute
+	cleanupRetrySlow = time.Hour
+	cleanupRecent    = time.Hour
+)
 
 // inflightEntry is stored at certs/<name>/inflight while an attempt runs,
 // so that a restart can recover what the attempt left behind: a
@@ -85,8 +92,17 @@ func finishInflight(ctx context.Context, s logical.Storage, name string, now tim
 		return s.Delete(ctx, inflightKey(name))
 	}
 	e.Privkey, e.OrderURL = "", ""
-	e.NextCleanupTime = now.Add(cleanupRetry)
+	e.NextCleanupTime = now.Add(cleanupDelay(e.Published, now))
 	return putJSON(ctx, s, inflightKey(name), e)
+}
+
+func cleanupDelay(recs []publishedRecord, now time.Time) time.Duration {
+	for _, r := range recs {
+		if now.Sub(r.PublishedTime) < cleanupRecent {
+			return cleanupRetry
+		}
+	}
+	return cleanupRetrySlow
 }
 
 // recordingProvider writes down each challenge record before publishing it
@@ -196,31 +212,61 @@ func (b *backend) recover(ctx context.Context, s logical.Storage, name string) e
 	return finishInflight(ctx, s, name, b.now().UTC())
 }
 
+// cleanupLeftovers removes the records an interrupted attempt left, each
+// only if the provider still holds it with the value the engine published.
+// A record the provider no longer has is done with; one it could not check
+// or remove stays for the next try.
 func (b *backend) cleanupLeftovers(ctx context.Context, s logical.Storage, name string, e *inflightEntry) {
-	var provider challenge.Provider
-	dnsEntry, _, err := ownedDNS(ctx, s, e.Account, e.DNSProvider)
-	switch {
-	case err != nil:
-	case dnsEntry == nil:
-		err = fmt.Errorf("account %q has no DNS provider named %q", e.Account, e.DNSProvider)
-	default:
-		var n *networkEntry
-		if n, err = loadNetwork(ctx, s); err == nil {
-			provider, err = dnsEntry.provider(n)
-		}
-	}
+	remove, err := leftoverRemover(ctx, s, e)
 	for _, rec := range e.Published {
-		cleanupErr := err
-		if provider != nil {
-			cleanupErr = provider.CleanUp(ctx, rec.Domain, rec.Token, rec.KeyAuth)
+		found, cleanupErr := false, err
+		if remove != nil {
+			found, cleanupErr = remove(ctx, rec)
 		}
-		if cleanupErr != nil {
+		switch {
+		case cleanupErr != nil:
 			b.Logger().Warn("could not remove a challenge record left by an interrupted attempt", "certificate", name, "domain", rec.Domain, "error", cleanupErr)
+		case found:
+			b.Logger().Info("removed a challenge record left by an interrupted attempt", "certificate", name, "domain", rec.Domain)
+		default:
+			b.Logger().Info("a challenge record left by an interrupted attempt was already gone", "certificate", name, "domain", rec.Domain)
 		}
 		_ = b.updateInflight(ctx, s, name, func(e *inflightEntry) {
 			e.Published = settleRecord(e.Published, rec.Domain, rec.Token, cleanupErr)
 		})
 	}
+}
+
+func leftoverRemover(ctx context.Context, s logical.Storage, e *inflightEntry) (func(context.Context, publishedRecord) (bool, error), error) {
+	dnsEntry, _, err := ownedDNS(ctx, s, e.Account, e.DNSProvider)
+	if err != nil {
+		return nil, err
+	}
+	if dnsEntry == nil {
+		return nil, fmt.Errorf("account %q has no DNS provider named %q", e.Account, e.DNSProvider)
+	}
+	spec, ok := dnsprovider.Lookup(dnsEntry.Provider)
+	if !ok {
+		return nil, fmt.Errorf("unknown DNS provider %q", dnsEntry.Provider)
+	}
+	n, err := loadNetwork(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	network, err := n.network()
+	if err != nil {
+		return nil, err
+	}
+	httpClient := network.HTTPClient(nil)
+	return func(ctx context.Context, rec publishedRecord) (bool, error) {
+		var found bool
+		err := acmeclient.WithDNS(network.DNS, func() error {
+			var err error
+			found, err = spec.Remove(ctx, dnsEntry.Settings, dnsEntry.common(), httpClient, rec.Domain, rec.Token, rec.KeyAuth)
+			return err
+		})
+		return found, err
+	}, nil
 }
 
 // recoverOrder stores the certificate of an order the CA completed while

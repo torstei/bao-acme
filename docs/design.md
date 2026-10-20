@@ -590,11 +590,26 @@ the order: if the order is valid, the job downloads its certificate, checks it a
 key, and stores it as the next version, as an attempt "recovered after an interruption". Otherwise
 it drops the entry, and a new order follows if one is due.
 
-6.2.4. A record that cannot be removed is kept, with the error, and retried hourly. `status` shows
-it under `inflight`, but never the key. A record whose publishing failed is dropped if removing it
-also fails, since it most likely never existed. lego's Cloudflare provider keeps the IDs of
-records it created in memory, so after a restart it cannot remove them: those stay visible in
-`status` until removed by hand. Domeneshop and `dnsupdate` find records by name and value.
+6.2.4. Leftover records are removed by the engine, not by lego's `CleanUp`, and checked first:
+
+6.2.4.1. The engine asks the provider for the TXT records at the challenge name, through its API
+(Domeneshop, Cloudflare) or the name server that takes the updates (`dnsupdate`). The zone is found
+the way lego finds it, using `config/network`'s resolvers.
+
+6.2.4.2. Only a record with exactly the value the engine published counts. If there is none, the
+leftover is done with. If there is, that record is deleted, by the ID the listing gave
+(Domeneshop, Cloudflare) or as that exact record (`dnsupdate`). A record with another value at
+the same name belongs to someone else and is never touched.
+
+6.2.4.3. If the check or the removal fails, the record is kept, with the error, and tried again:
+every five minutes for the first hour after it was published, then hourly. A failed check never
+counts as "not there". `status` shows the record under `inflight`, but never the key.
+
+6.2.4.4. A record whose publishing failed is dropped whatever the outcome, since it most likely
+never existed.
+
+6.2.4.5. Removal right after validation, inside lego's flow, stays lego's `CleanUp`. That covers
+Cloudflare too, as lego still holds the IDs of the records it created then.
 
 6.3. **DNS-01 via `lego`'s providers.** `lego` is used as a library, pinned, with 200+ DNS providers,
 including RFC 2136 dynamic updates for self-hosted name servers.
