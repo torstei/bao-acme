@@ -167,8 +167,9 @@ CA's request to renew early, and otherwise happens when a third of the lifetime 
 
 If OpenBao restarts or fails over in the middle of an attempt, the engine afterwards stores a
 certificate the CA had already issued, instead of ordering a new one, and removes the challenge
-records the attempt left. With Cloudflare, leftover records cannot be found again after a restart;
-`status` lists them for removal by hand.
+records the attempt left. It removes only a record with exactly the value it published, and
+leaves other records at the same name alone. A record it cannot remove is shown in `status` and
+tried again.
 
 ### A complete setup with Domeneshop
 

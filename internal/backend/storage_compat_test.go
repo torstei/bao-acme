@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-acme/lego/v5/challenge/dns01"
 	"github.com/openbao/openbao/sdk/v2/logical"
 
 	"github.com/torstei/bao-acme/internal/acmetest"
@@ -395,6 +396,7 @@ func TestWritesStorageV1InflightFields(t *testing.T) {
 
 	e.imp("leftover", testcerts.New(t, testcerts.Options{Names: []string{"leftover.example.test"}}))
 	spec := e.defineQuietly("leftover", "leftover.example.test")
+	e.dns.SetTXT("_acme-challenge.leftover.example.test", dns01.GetChallengeInfo(ctx, "leftover.example.test", "tok.thumb").Value)
 	e.ok(logical.UpdateOperation, "config/dns/bind", map[string]any{"tsig_secret": "d3Jvbmd3cm9uZ3dyb25nd3Jvbmd3cm9uZw=="})
 	if err := putJSON(ctx, e.storage, inflightKey("leftover"), &inflightEntry{
 		StartTime: time.Now().UTC(), DefinedTime: spec.DefinedTime, Reason: "renewal is due", Account: "le", DNSProvider: "bind",

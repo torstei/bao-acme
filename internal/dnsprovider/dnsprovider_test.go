@@ -193,3 +193,101 @@ func TestAllFieldsNamesEveryProvider(t *testing.T) {
 		t.Errorf("Names = %s", got)
 	}
 }
+
+func TestRemoveTakesOnlyTheEnginesRecord(t *testing.T) {
+	type setup struct {
+		settings, wrong Settings
+		client          *http.Client
+		// plant adds someone else's TXT record at the challenge name.
+		plant func(fqdn, value string)
+	}
+	providers := map[string]func(t *testing.T, d *acmetest.DNS) setup{
+		"domeneshop": func(t *testing.T, d *acmetest.DNS) setup {
+			fake := acmetest.StartDomeneshop(t, d, zone, "tok", "sec")
+			return setup{
+				settings: Settings{"api_token": "tok", "api_secret": "sec"},
+				wrong:    Settings{"api_token": "tok", "api_secret": "wrong"},
+				client:   fake.Client(),
+				plant:    func(fqdn, value string) { fake.Add(strings.TrimSuffix(fqdn, "."+zone+"."), value) },
+			}
+		},
+		"cloudflare": func(t *testing.T, d *acmetest.DNS) setup {
+			fake := acmetest.StartCloudflare(t, d, zone, "tok")
+			return setup{
+				settings: Settings{"api_token": "tok"},
+				wrong:    Settings{"api_token": "wrong"},
+				client:   fake.Client(),
+				plant:    func(fqdn, value string) { fake.Add(dns01.UnFqdn(fqdn), value) },
+			}
+		},
+		"dnsupdate": func(t *testing.T, d *acmetest.DNS) setup {
+			return setup{
+				settings: Settings{"nameserver": d.Addr, "tsig_key": tsigName, "tsig_secret": tsigSecret},
+				wrong:    Settings{"nameserver": d.Addr, "tsig_key": tsigName, "tsig_secret": "d3Jvbmd3cm9uZ3dyb25nd3Jvbmd3cm9uZw=="},
+				plant:    func(fqdn, value string) { d.SetTXT(fqdn, value) },
+			}
+		},
+	}
+	for name, start := range providers {
+		t.Run(name, func(t *testing.T) {
+			d := acmetest.StartDNS(t, &acmetest.TSIG{Name: tsigName, Secret: tsigSecret}, zone)
+			useResolver(t, d.Addr)
+			ctx := context.Background()
+			s := start(t, d)
+			spec, _ := Lookup(name)
+			fqdn, _ := challengeValue(t)
+
+			p, err := spec.Build(s.settings, Common{}, s.client)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := p.Present(ctx, domain, "", keyAuth); err != nil {
+				t.Fatal(err)
+			}
+			s.plant(fqdn, "someone else's")
+
+			if found, err := spec.Remove(ctx, s.wrong, Common{}, s.client, domain, "", keyAuth); err == nil {
+				t.Errorf("removed with wrong credentials: found %v", found)
+			}
+			if got := d.TXT(fqdn); len(got) != 2 {
+				t.Fatalf("TXT after a refused removal = %v", got)
+			}
+
+			found, err := spec.Remove(ctx, s.settings, Common{}, s.client, domain, "", keyAuth)
+			if err != nil || !found {
+				t.Fatalf("Remove = %v, %v; want true, nil", found, err)
+			}
+			if got := d.TXT(fqdn); len(got) != 1 || got[0] != "someone else's" {
+				t.Errorf("TXT after removal = %v, want only someone else's", got)
+			}
+
+			found, err = spec.Remove(ctx, s.settings, Common{}, s.client, domain, "", keyAuth)
+			if err != nil || found {
+				t.Errorf("Remove of a record already gone = %v, %v; want false, nil", found, err)
+			}
+			if got := d.TXT(fqdn); len(got) != 1 || got[0] != "someone else's" {
+				t.Errorf("TXT after the second removal = %v", got)
+			}
+		})
+	}
+}
+
+// TestDNSUpdateRemoveNeedsNoResolver: with zones set, dnsupdate works where
+// the resolvers do not know the zone, and so must removal.
+func TestDNSUpdateRemoveNeedsNoResolver(t *testing.T) {
+	d := acmetest.StartDNS(t, &acmetest.TSIG{Name: tsigName, Secret: tsigSecret}, zone)
+	useResolver(t, d.Addr)
+	fqdn, value := challengeValue(t)
+	useResolver(t, "127.0.0.1:1")
+	d.SetTXT(fqdn, value)
+
+	spec, _ := Lookup("dnsupdate")
+	settings := Settings{"nameserver": d.Addr, "tsig_key": tsigName, "tsig_secret": tsigSecret, "zones": zone}
+	found, err := spec.Remove(context.Background(), settings, Common{}, nil, domain, "", keyAuth)
+	if err != nil || !found {
+		t.Fatalf("Remove = %v, %v; want true, nil", found, err)
+	}
+	if got := d.TXT(fqdn); len(got) != 0 {
+		t.Errorf("TXT after removal = %v", got)
+	}
+}

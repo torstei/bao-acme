@@ -26,6 +26,7 @@ func init() {
 			{Name: "api_token", Description: "API token, from domene.shop/admin?view=api.", Secret: true, Required: true},
 			{Name: "api_secret", Description: "API secret belonging to the token.", Secret: true, Required: true},
 		},
+		remove: removeDomeneshop,
 		build: func(s Settings, c Common, hc *http.Client) (challenge.Provider, error) {
 			return domeneshop.NewDNSProviderConfig(&domeneshop.Config{
 				APIToken:           s["api_token"],
@@ -63,6 +64,7 @@ func init() {
 			}
 			return nil
 		},
+		remove: removeCloudflare,
 		build: func(s Settings, c Common, hc *http.Client) (challenge.Provider, error) {
 			return cloudflare.NewDNSProviderConfig(&cloudflare.Config{
 				AuthToken:          s["api_token"],
@@ -97,6 +99,7 @@ func init() {
 			}
 			return nil
 		},
+		remove: removeDNSUpdate,
 		build: func(s Settings, c Common, _ *http.Client) (challenge.Provider, error) {
 			alg, _ := tsigAlgorithm(s["tsig_algorithm"])
 			var zones []string

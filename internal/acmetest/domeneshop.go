@@ -4,7 +4,7 @@ package acmetest
 
 import (
 	"encoding/json"
-	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -21,6 +21,8 @@ type Domeneshop struct {
 
 	mu      sync.Mutex
 	srv     *httptest.Server
+	dns     *DNS
+	zone    string
 	records map[int]record
 	nextID  int
 }
@@ -37,7 +39,7 @@ type record struct {
 // token and secret.
 func StartDomeneshop(t testing.TB, d *DNS, zone, token, secret string) *Domeneshop {
 	t.Helper()
-	f := &Domeneshop{records: map[int]record{}, nextID: 1}
+	f := &Domeneshop{records: map[int]record{}, nextID: 1, dns: d, zone: zone}
 	const domainID = 1
 
 	mux := http.NewServeMux()
@@ -102,16 +104,18 @@ func StartDomeneshop(t testing.TB, d *DNS, zone, token, secret string) *Domenesh
 // Client returns an HTTP client that sends requests for api.domeneshop.no
 // to the fake, and fails any other request.
 func (f *Domeneshop) Client() *http.Client {
-	target, _ := url.Parse(f.srv.URL)
-	return &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		if r.URL.Host != "api.domeneshop.no" {
-			return nil, &url.Error{Op: r.Method, URL: r.URL.String(), Err: errUnexpectedHost}
-		}
-		r = r.Clone(r.Context())
-		r.URL.Scheme, r.URL.Host = target.Scheme, target.Host
-		r.Host = target.Host
-		return http.DefaultTransport.RoundTrip(r)
-	})}
+	return redirectClient("api.domeneshop.no", f.srv.URL)
+}
+
+// Add stores a TXT record that someone else made, as host=data relative to
+// the zone.
+func (f *Domeneshop) Add(host, data string) {
+	f.mu.Lock()
+	rec := record{ID: f.nextID, Host: host, Type: "TXT", Data: data}
+	f.nextID++
+	f.records[rec.ID] = rec
+	f.mu.Unlock()
+	f.dns.SetTXT(host+"."+f.zone, data)
 }
 
 // Records returns the TXT records the fake holds, as host=data.
@@ -129,4 +133,17 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-var errUnexpectedHost = errors.New("request to a host other than api.domeneshop.no")
+// redirectClient sends requests for host to the server at serverURL, and
+// fails any other request.
+func redirectClient(host, serverURL string) *http.Client {
+	target, _ := url.Parse(serverURL)
+	return &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host != host {
+			return nil, &url.Error{Op: r.Method, URL: r.URL.String(), Err: fmt.Errorf("request to a host other than %s", host)}
+		}
+		r = r.Clone(r.Context())
+		r.URL.Scheme, r.URL.Host = target.Scheme, target.Host
+		r.Host = target.Host
+		return http.DefaultTransport.RoundTrip(r)
+	})}
+}
