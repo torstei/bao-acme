@@ -46,6 +46,9 @@ type Order struct {
 	// the CA has created it, so the order can be found again after a
 	// restart.
 	OnOrderCreated func(orderURL string)
+	// OnReplacesRefused, when set, is called when the CA refused to create
+	// the order with Replaces, and it is ordered again without.
+	OnReplacesRefused func(err error)
 }
 
 // Obtain orders a certificate over DNS-01, publishing challenge records
@@ -64,12 +67,12 @@ func Obtain(ctx context.Context, a *Account, provider challenge.Provider, order 
 		return nil, ErrNoResolvers
 	}
 
+	newOrderURL, err := newOrderURL(a)
+	if err != nil {
+		return nil, err
+	}
 	var wraps []func(http.RoundTripper) http.RoundTripper
 	if order.OnOrderCreated != nil {
-		newOrderURL, err := newOrderURL(a)
-		if err != nil {
-			return nil, err
-		}
 		wraps = append(wraps, func(next http.RoundTripper) http.RoundTripper {
 			return &orderObserver{next: next, newOrderURL: newOrderURL, created: order.OnOrderCreated}
 		})
@@ -95,6 +98,13 @@ func Obtain(ctx context.Context, a *Account, provider challenge.Provider, order 
 	var res *certificate.Resource
 	err = WithDNS(settings, func() error {
 		res, err = client.Certificate.Obtain(ctx, req)
+		if err != nil && req.ReplacesCertID != "" && refusedOrder(err, newOrderURL) {
+			if order.OnReplacesRefused != nil {
+				order.OnReplacesRefused(err)
+			}
+			req.ReplacesCertID = ""
+			res, err = client.Certificate.Obtain(ctx, req)
+		}
 		return err
 	})
 	if err != nil {
@@ -177,6 +187,15 @@ func Revoke(ctx context.Context, a *Account, certPEM []byte) error {
 		return err
 	}
 	return client.Certificate.Revoke(ctx, certPEM)
+}
+
+// refusedOrder reports whether the CA refused to create the order, for a
+// reason other than a rate limit. Replaces is optional, so such an order is
+// tried again without it; under a rate limit it may be what exempts the
+// order.
+func refusedOrder(err error, newOrderURL string) bool {
+	var p *acme.ProblemDetails
+	return errors.As(err, &p) && p.URL == newOrderURL && p.Type != acme.RateLimitedErrorType
 }
 
 func newOrderURL(a *Account) (string, error) {

@@ -30,8 +30,14 @@ type issuanceEnv struct {
 
 func newIssuanceEnv(t *testing.T) *issuanceEnv {
 	t.Helper()
+	return newIssuanceEnvWith(t, acmetest.Options{})
+}
+
+func newIssuanceEnvWith(t *testing.T, opts acmetest.Options) *issuanceEnv {
+	t.Helper()
 	d := acmetest.StartDNS(t, &acmetest.TSIG{Name: tsigName, Secret: tsigSecret}, testZone)
-	p := acmetest.Start(t, acmetest.Options{Resolver: d.Addr})
+	opts.Resolver = d.Addr
+	p := acmetest.Start(t, opts)
 	a := newAccount(t, p)
 	reg, _, err := Register(context.Background(), a, true)
 	if err != nil {
@@ -179,6 +185,77 @@ func TestRenewalInfoAndReplaces(t *testing.T) {
 		t.Errorf("replacing an already replaced certificate: %v", err)
 	}
 }
+
+// TestRefusedReplacesIsOrderedAgainWithout: replaces is optional, so a CA
+// refusing an order for it must not cost the renewal, unless the refusal is
+// a rate limit, which replaces may be what exempts the order from.
+func TestRefusedReplacesIsOrderedAgainWithout(t *testing.T) {
+	for _, c := range []struct {
+		problem string
+		retried bool
+	}{
+		{"urn:ietf:params:acme:error:serverInternal", true},
+		{"urn:ietf:params:acme:error:malformed", true},
+		{"urn:ietf:params:acme:error:rateLimited", false},
+	} {
+		t.Run(c.problem, func(t *testing.T) {
+			e := newIssuanceEnvWith(t, acmetest.Options{RefuseReplaces: c.problem})
+			chain, err := e.obtain(t, []string{"www.example.test"}, "ecdsa-p256")
+			if err != nil {
+				t.Fatal(err)
+			}
+			p, err := e.provider(t).Build(dnsprovider.Settings{
+				"nameserver": e.dns.Addr, "tsig_key": tsigName, "tsig_secret": tsigSecret,
+			}, dnsprovider.Common{PropagationTimeout: 10 * time.Second, PollingInterval: 100 * time.Millisecond}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			key, _ := cert.GenerateKey("ecdsa-p256")
+			var refused error
+			_, err = Obtain(context.Background(), e.account, p, Order{
+				Names: []string{"www.example.test"}, Key: key, Replaces: leafOf(t, chain),
+				OnReplacesRefused: func(err error) { refused = err },
+			})
+
+			if n := e.pebble.RefusedReplaces(); n != 1 {
+				t.Fatalf("orders refused for replaces = %d, want 1", n)
+			}
+			switch {
+			case c.retried && (err != nil || refused == nil || e.pebble.OrdersPlaced() != 2):
+				t.Errorf("renewal = %v, refusal reported %v, orders %d; want it ordered again without replaces", err, refused, e.pebble.OrdersPlaced())
+			case !c.retried && (err == nil || refused != nil || e.pebble.OrdersPlaced() != 1):
+				t.Errorf("renewal = %v, refusal reported %v, orders %d; want no second order", err, refused, e.pebble.OrdersPlaced())
+			}
+		})
+	}
+}
+
+// TestFailureAfterOrderingKeepsReplaces: only a refused order is placed
+// again; a failure once the order exists, here the CA failing to validate a
+// record that was never published, is not. The CA reuses www's
+// authorization, so the new name is what fails.
+func TestFailureAfterOrderingKeepsReplaces(t *testing.T) {
+	e := newIssuanceEnv(t)
+	chain, err := e.obtain(t, []string{"www.example.test"}, "ecdsa-p256")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.account.Network.DNS.PropagationCheck = PropagationNone
+	key, _ := cert.GenerateKey("ecdsa-p256")
+	refused := false
+	_, err = Obtain(context.Background(), e.account, publishesNothing{}, Order{
+		Names: []string{"www.example.test", "new.example.test"}, Key: key, Replaces: leafOf(t, chain),
+		OnReplacesRefused: func(error) { refused = true },
+	})
+	if err == nil || refused || e.pebble.OrdersPlaced() != 2 {
+		t.Errorf("renewal = %v, refusal reported %v, orders %d; want one failed order", err, refused, e.pebble.OrdersPlaced())
+	}
+}
+
+type publishesNothing struct{}
+
+func (publishesNothing) Present(context.Context, string, string, string) error { return nil }
+func (publishesNothing) CleanUp(context.Context, string, string, string) error { return nil }
 
 func TestRevokedCertificateIsDueAtOnce(t *testing.T) {
 	e := newIssuanceEnv(t)

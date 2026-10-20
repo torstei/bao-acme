@@ -37,6 +37,10 @@ type Options struct {
 	// KeepNoContact leaves the contact out of account responses, as Let's
 	// Encrypt does.
 	KeepNoContact bool
+	// RefuseReplaces, when set, answers every new order that names a
+	// certificate it replaces with a problem of this type, such as
+	// "urn:ietf:params:acme:error:serverInternal".
+	RefuseReplaces string
 }
 
 // Pebble is a running server.
@@ -48,7 +52,20 @@ type Pebble struct {
 	// CAPEM is CA as PEM.
 	CAPEM string
 
-	contactUpdates atomic.Int32
+	contactUpdates  atomic.Int32
+	refusedReplaces atomic.Int32
+	ordersPlaced    atomic.Int32
+}
+
+// RefusedReplaces counts new orders refused for naming a certificate they
+// replace.
+func (p *Pebble) RefusedReplaces() int {
+	return int(p.refusedReplaces.Load())
+}
+
+// OrdersPlaced counts new orders the server accepted.
+func (p *Pebble) OrdersPlaced() int {
+	return int(p.ordersPlaced.Load())
 }
 
 // ContactUpdates counts requests that changed an existing account's
@@ -86,13 +103,35 @@ func Start(t testing.TB, opts Options) *Pebble {
 	p := &Pebble{}
 	handler := front.Handler()
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/order-plz" {
+			body, _ := io.ReadAll(r.Body)
+			r.Body = io.NopCloser(bytes.NewReader(body))
+			if opts.RefuseReplaces != "" && jwsHas(body, "replaces") {
+				p.refusedReplaces.Add(1)
+				w.Header().Set("Content-Type", "application/problem+json")
+				w.WriteHeader(http.StatusInternalServerError)
+				_ = json.NewEncoder(w).Encode(map[string]any{"type": opts.RefuseReplaces, "detail": "refused by the test", "status": http.StatusInternalServerError})
+				return
+			}
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, r)
+			if rec.Code == http.StatusCreated {
+				p.ordersPlaced.Add(1)
+			}
+			for k, v := range rec.Header() {
+				w.Header()[k] = v
+			}
+			w.WriteHeader(rec.Code)
+			_, _ = w.Write(rec.Body.Bytes())
+			return
+		}
 		if !strings.HasPrefix(r.URL.Path, "/my-account/") && r.URL.Path != "/sign-me-up" {
 			handler.ServeHTTP(w, r)
 			return
 		}
 		body, _ := io.ReadAll(r.Body)
 		r.Body = io.NopCloser(bytes.NewReader(body))
-		if strings.HasPrefix(r.URL.Path, "/my-account/") && jwsHasContact(body) {
+		if strings.HasPrefix(r.URL.Path, "/my-account/") && jwsHas(body, "contact") {
 			p.contactUpdates.Add(1)
 		}
 		if !opts.KeepNoContact {
@@ -123,7 +162,8 @@ func Start(t testing.TB, opts Options) *Pebble {
 	return p
 }
 
-func jwsHasContact(body []byte) bool {
+// jwsHas reports whether a JWS request's payload has field.
+func jwsHas(body []byte, field string) bool {
 	var jws struct {
 		Payload string `json:"payload"`
 	}
@@ -134,10 +174,10 @@ func jwsHasContact(body []byte) bool {
 	if err != nil {
 		return false
 	}
-	var update map[string]any
-	if json.Unmarshal(payload, &update) != nil {
+	var fields map[string]any
+	if json.Unmarshal(payload, &fields) != nil {
 		return false
 	}
-	_, ok := update["contact"]
+	_, ok := fields[field]
 	return ok
 }
