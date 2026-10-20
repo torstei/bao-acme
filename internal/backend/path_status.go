@@ -4,6 +4,7 @@ package backend
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/openbao/openbao/sdk/v2/framework"
@@ -145,8 +146,12 @@ func summary(m *certMeta, current *certVersion, running *job, now time.Time) map
 		"running":  running != nil,
 		"failures": 0,
 	}
-	if m.Issuance != nil {
-		data["failures"] = m.Issuance.Failures
+	if st := m.Issuance; st != nil {
+		data["failures"] = st.Failures
+		if st.Failures > 0 {
+			data["failing_since"] = st.FailingSince
+			data["last_error"] = st.LastError
+		}
 	}
 	if current != nil {
 		data["version"] = current.Version
@@ -199,13 +204,72 @@ func (b *backend) handleStatus(ctx context.Context, req *logical.Request, d *fra
 		if m == nil || scoped && m.owner() != account {
 			continue
 		}
-		s := summary(m, current, b.issuer.job(name), now)
+		running := b.issuer.job(name)
+		s := summary(m, current, running, now)
+		inflight, err := loadInflight(ctx, req.Storage, name)
+		if err != nil {
+			return nil, err
+		}
+		if leftovers := leftoverData(inflight, running != nil); len(leftovers) > 0 {
+			s["leftovers"] = leftovers
+		}
 		certs[name] = s
 		counts[s["state"].(string)]++
 	}
+	accounts, err := accountsStatus(ctx, req.Storage, account, scoped)
+	if err != nil {
+		return nil, err
+	}
 	return &logical.Response{Data: map[string]any{
+		"accounts":     accounts,
 		"certificates": certs,
 		"counts":       counts,
 		"total":        len(certs),
 	}}, nil
+}
+
+// leftoverData lists the challenge records an attempt left that are not
+// yet removed. A running attempt's records are not leftovers.
+func leftoverData(e *inflightEntry, running bool) []map[string]any {
+	if e == nil || running {
+		return nil
+	}
+	var out []map[string]any
+	for _, r := range e.Published {
+		rec := map[string]any{"domain": r.Domain, "published_time": r.PublishedTime}
+		if r.CleanupError != "" {
+			rec["cleanup_error"] = r.CleanupError
+		}
+		out = append(out, rec)
+	}
+	return out
+}
+
+func accountsStatus(ctx context.Context, s logical.Storage, only string, scoped bool) (map[string]any, error) {
+	names, err := s.List(ctx, "config/accounts/")
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]any{}
+	for _, name := range names {
+		if strings.HasSuffix(name, "/") || scoped && name != only {
+			continue
+		}
+		a, err := loadAccount(ctx, s, name)
+		if err != nil {
+			return nil, err
+		}
+		if a == nil {
+			continue
+		}
+		data := map[string]any{
+			"registered":              a.Registration != nil,
+			"terms_of_service_agreed": a.TermsOfServiceAgreed,
+		}
+		if a.Registration != nil {
+			data["status"] = a.Registration.Status
+		}
+		out[name] = data
+	}
+	return out, nil
 }

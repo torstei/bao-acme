@@ -381,6 +381,9 @@ func issuanceData(m *certMeta, current *certVersion, now time.Time) map[string]a
 		data["last_success_time"] = st.LastSuccessTime
 		data["last_error"] = st.LastError
 		data["failures"] = st.Failures
+		if !st.FailingSince.IsZero() {
+			data["failing_since"] = st.FailingSince
+		}
 		data["next_attempt_time"] = st.NextAttemptTime
 		data["renew_requested"] = st.RenewRequested
 		data["rotate_key_requested"] = st.RotateKey

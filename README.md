@@ -162,8 +162,10 @@ publish an `issue` record with its account URL, or certbot is refused.
 | `…/certs/<name>/renew` | write | Renew now, ignoring the schedule and any backoff. `rotate_key=true` takes a new key this once. |
 | `…/certs/<name>/unmanage` | write | Back to import-only, keeping the versions. |
 | `accounts/<account>/certs/` | list | Names. With `?covers=<host>`, only those whose names cover the host. |
-| `accounts/<account>/status` | read | The account's certificates: each one's state and expiry, and `counts` per state. |
+| `accounts/<account>/status` | read | The account's certificates, each with its state and expiry, and for a failing one `failing_since` and `last_error`, and any `leftovers`: challenge records not yet removed. Also `counts` per state, and the account's registration state under `accounts`. |
 | `status` | read | The same for every account, in one read. |
+
+Read `status` with `bao read -format=yaml …`: the default table prints nested values on one line.
 
 Renewal follows the CA's suggested window (ARI, RFC 9773) where offered, which also picks up a
 CA's request to renew early, and otherwise happens when a third of the lifetime remains.
