@@ -21,7 +21,7 @@ const testKeyAuth = "token.thumbprint"
 // engine had stopped right after it was written.
 func (e *managedEnv) defineQuietly(name string, names ...string) *managedSpec {
 	e.t.Helper()
-	spec := &managedSpec{Names: names, KeyType: "ecdsa-p256", Account: "le", DNSProvider: "bind", DefinedTime: time.Now().UTC()}
+	spec := &managedSpec{Names: names, KeyType: "ecdsa-p256", Account: "le", DNS: "bind", DefinedTime: time.Now().UTC()}
 	m, _ := loadMeta(context.Background(), e.storage, name)
 	if m == nil {
 		m = &certMeta{MaxVersions: defaultMaxVersions}
@@ -54,7 +54,7 @@ func (e *managedEnv) obtainBehindTheEnginesBack(name string, spec *managedSpec) 
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	dnsEntry, _ := loadDNS(ctx, e.storage, spec.DNSProvider)
+	dnsEntry, _ := loadDNS(ctx, e.storage, spec.DNS)
 	provider, err := dnsEntry.provider(n)
 	if err != nil {
 		e.t.Fatal(err)
@@ -97,7 +97,7 @@ func TestRecoversACertificateTheCAIssued(t *testing.T) {
 	}
 	if err := putJSON(context.Background(), e.storage, inflightKey("www"), &inflightEntry{
 		StartTime: time.Now().UTC(), DefinedTime: spec.DefinedTime, Reason: "no certificate yet",
-		Account: "le", DNSProvider: "bind", Privkey: keyPEM, OrderURL: orderURL,
+		Account: "le", DNS: "bind", Privkey: keyPEM, OrderURL: orderURL,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestCleansUpLeftoverRecords(t *testing.T) {
 		t.Fatalf("setup: TXT = %v", got)
 	}
 	if err := putJSON(context.Background(), e.storage, inflightKey("www"), &inflightEntry{
-		StartTime: time.Now().UTC(), DefinedTime: spec.DefinedTime, Account: "le", DNSProvider: "bind",
+		StartTime: time.Now().UTC(), DefinedTime: spec.DefinedTime, Account: "le", DNS: "bind",
 		Published: []publishedRecord{{Domain: "www.example.test", Token: "tok", KeyAuth: testKeyAuth, PublishedTime: time.Now().UTC()}},
 	}); err != nil {
 		t.Fatal(err)
@@ -167,7 +167,7 @@ func TestLeftoverAlreadyGoneIsDropped(t *testing.T) {
 	e.ok(logical.UpdateOperation, "config/dns/bind", map[string]any{"tsig_secret": "d3Jvbmd3cm9uZ3dyb25nd3Jvbmd3cm9uZw=="})
 	e.dns.SetTXT("_acme-challenge.www.example.test", "someone else's")
 	if err := putJSON(context.Background(), e.storage, inflightKey("www"), &inflightEntry{
-		StartTime: time.Now().UTC(), DefinedTime: spec.DefinedTime, Account: "le", DNSProvider: "bind",
+		StartTime: time.Now().UTC(), DefinedTime: spec.DefinedTime, Account: "le", DNS: "bind",
 		Published: []publishedRecord{{Domain: "www.example.test", Token: "tok", KeyAuth: testKeyAuth, PublishedTime: time.Now().UTC()}},
 	}); err != nil {
 		t.Fatal(err)
@@ -197,7 +197,7 @@ func TestLeftoverThatCannotBeRemovedIsKeptAndShown(t *testing.T) {
 	}
 	e.ok(logical.UpdateOperation, "config/dns/bind", map[string]any{"tsig_secret": "d3Jvbmd3cm9uZ3dyb25nd3Jvbmd3cm9uZw=="})
 	if err := putJSON(context.Background(), e.storage, inflightKey("www"), &inflightEntry{
-		StartTime: time.Now().UTC(), DefinedTime: spec.DefinedTime, Account: "le", DNSProvider: "bind",
+		StartTime: time.Now().UTC(), DefinedTime: spec.DefinedTime, Account: "le", DNS: "bind",
 		Published: []publishedRecord{{Domain: "www.example.test", Token: "tok", KeyAuth: testKeyAuth, PublishedTime: time.Now().UTC()}},
 	}); err != nil {
 		t.Fatal(err)
@@ -239,7 +239,7 @@ func TestUnrecoverableOrderIsDropped(t *testing.T) {
 	key, _ := cert.GenerateKey("ecdsa-p256")
 	keyPEM, _ := cert.EncodeKey(key)
 	if err := putJSON(context.Background(), e.storage, inflightKey("www"), &inflightEntry{
-		StartTime: time.Now().UTC(), DefinedTime: spec.DefinedTime, Account: "le", DNSProvider: "bind",
+		StartTime: time.Now().UTC(), DefinedTime: spec.DefinedTime, Account: "le", DNS: "bind",
 		Privkey: keyPEM, OrderURL: "https://127.0.0.1:1/order/gone",
 	}); err != nil {
 		t.Fatal(err)

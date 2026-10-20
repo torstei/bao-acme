@@ -46,7 +46,7 @@ func newManagedEnv(t *testing.T) *managedEnv {
 		"dns_propagation_check": "resolvers",
 	})
 	h.ok(logical.CreateOperation, "config/dns/bind", map[string]any{
-		"provider":            "dnsupdate",
+		"type":                "dnsupdate",
 		"nameserver":          d.Addr,
 		"tsig_key":            managedTSIGName,
 		"tsig_secret":         managedTSIGSecret,
@@ -59,8 +59,8 @@ func newManagedEnv(t *testing.T) *managedEnv {
 func (e *managedEnv) define(name string, names ...string) *logical.Response {
 	e.t.Helper()
 	return e.ok(logical.CreateOperation, "certs/"+name, map[string]any{
-		"names":        strings.Join(names, ","),
-		"dns_provider": "bind",
+		"names": strings.Join(names, ","),
+		"dns":   "bind",
 	})
 }
 
@@ -194,7 +194,7 @@ func TestPeriodicResumesAfterRestart(t *testing.T) {
 	if err := putJSON(context.Background(), e.storage, metaKey("www"), &certMeta{
 		MaxVersions: defaultMaxVersions,
 		Managed: &managedSpec{
-			Names: []string{"www.example.test"}, KeyType: "ecdsa-p256", Account: "le", DNSProvider: "bind",
+			Names: []string{"www.example.test"}, KeyType: "ecdsa-p256", Account: "le", DNS: "bind",
 			DefinedTime: time.Now(),
 		},
 	}); err != nil {
@@ -208,7 +208,7 @@ func TestPeriodicResumesAfterRestart(t *testing.T) {
 
 func TestDefineValidation(t *testing.T) {
 	e := newManagedEnv(t)
-	base := map[string]any{"names": "www.example.test", "dns_provider": "bind"}
+	base := map[string]any{"names": "www.example.test", "dns": "bind"}
 	with := func(k string, v any) map[string]any {
 		m := map[string]any{}
 		for kk, vv := range base {
@@ -222,14 +222,17 @@ func TestDefineValidation(t *testing.T) {
 		return m
 	}
 	cases := map[string]map[string]any{
-		"names is required":        with("names", nil),
-		"IP addresses":             with("names", "192.0.2.1"),
-		"leftmost label":           with("names", "www.*.example.test"),
-		"A-label":                  with("names", "blåbær.example.test"),
-		`no DNS provider named`:    with("dns_provider", "nope"),
-		"unsupported key_type":     with("key_type", "dsa-1024"),
-		"dns_provider is required": with("dns_provider", nil),
+		"names is required":     with("names", nil),
+		"IP addresses":          with("names", "192.0.2.1"),
+		"leftmost label":        with("names", "www.*.example.test"),
+		"A-label":               with("names", "blåbær.example.test"),
+		`no DNS provider named`: with("dns", "nope"),
+		"unsupported key_type":  with("key_type", "dsa-1024"),
+		"dns is required":       with("dns", nil),
 	}
+	old := with("dns", nil)
+	old["dns_provider"] = "bind"
+	e.fails(logical.CreateOperation, "certs/old", old, "dns is required")
 	for want, data := range cases {
 		e.fails(logical.CreateOperation, "certs/x", data, want)
 	}

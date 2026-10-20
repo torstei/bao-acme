@@ -208,8 +208,8 @@ func TestReadsStorageV1DNS(t *testing.T) {
 	if err != nil || e == nil {
 		t.Fatalf("entry = %+v, %v", e, err)
 	}
-	want := dnsEntry{Provider: "domeneshop", TTL: 300, PropagationTimeoutSeconds: 600, PollingIntervalSeconds: 30}
-	if e.Provider != want.Provider || e.TTL != want.TTL || e.PropagationTimeoutSeconds != want.PropagationTimeoutSeconds ||
+	want := dnsEntry{Type: "domeneshop", TTL: 300, PropagationTimeoutSeconds: 600, PollingIntervalSeconds: 30}
+	if e.Type != want.Type || e.TTL != want.TTL || e.PropagationTimeoutSeconds != want.PropagationTimeoutSeconds ||
 		e.PollingIntervalSeconds != want.PollingIntervalSeconds || e.Settings["api_token"] == "" || e.Settings["api_secret"] == "" {
 		t.Errorf("entry = %+v", e)
 	}
@@ -229,7 +229,7 @@ func TestReadsStorageV1DNS(t *testing.T) {
 func TestWritesStorageV1DNSFields(t *testing.T) {
 	h := newHarness(t)
 	h.ok(logical.CreateOperation, "config/dns/example", map[string]any{
-		"provider": "domeneshop", "api_token": "tok-123", "api_secret": "sec-456",
+		"type": "domeneshop", "api_token": "tok-123", "api_secret": "sec-456",
 		"ttl": 300, "propagation_timeout": "10m", "polling_interval": "30s",
 	})
 	entry, err := h.storage.Get(context.Background(), "config/dns/example")
@@ -250,7 +250,7 @@ func TestReadsStorageV1Managed(t *testing.T) {
 
 	info := h.ok(logical.ReadOperation, "certs/managed/info", nil)
 	def := info.Data["definition"].(map[string]any)
-	if info.Data["managed"] != true || info.Data["source"] != "acme:le" || def["account"] != "le" || def["dns_provider"] != "bind" {
+	if info.Data["managed"] != true || info.Data["source"] != "acme:le" || def["account"] != "le" || def["dns"] != "bind" {
 		t.Errorf("managed info = %v", info.Data)
 	}
 	issuance := info.Data["issuance"].(map[string]any)
@@ -399,7 +399,7 @@ func TestWritesStorageV1InflightFields(t *testing.T) {
 	e.dns.SetTXT("_acme-challenge.leftover.example.test", dns01.GetChallengeInfo(ctx, "leftover.example.test", "tok.thumb").Value)
 	e.ok(logical.UpdateOperation, "config/dns/bind", map[string]any{"tsig_secret": "d3Jvbmd3cm9uZ3dyb25nd3Jvbmd3cm9uZw=="})
 	if err := putJSON(ctx, e.storage, inflightKey("leftover"), &inflightEntry{
-		StartTime: time.Now().UTC(), DefinedTime: spec.DefinedTime, Reason: "renewal is due", Account: "le", DNSProvider: "bind",
+		StartTime: time.Now().UTC(), DefinedTime: spec.DefinedTime, Reason: "renewal is due", Account: "le", DNS: "bind",
 		Published: []publishedRecord{{Domain: "leftover.example.test", Token: "tok", KeyAuth: "tok.thumb", PublishedTime: time.Now().UTC()}},
 	}); err != nil {
 		t.Fatal(err)
@@ -456,7 +456,7 @@ func TestWritesStorageV1OwnerFields(t *testing.T) {
 	h.ok(logical.CreateOperation, "config/accounts/team-a", nil)
 	c := testcerts.New(t, testcerts.Options{Names: []string{"owned.example.test"}})
 	h.ok(logical.UpdateOperation, "accounts/team-a/certs/owned/import", map[string]any{"fullchain": c.Fullchain, "privkey": c.Privkey})
-	h.ok(logical.CreateOperation, "accounts/team-a/dns/owned", map[string]any{"provider": "domeneshop", "api_token": "tok", "api_secret": "sec"})
+	h.ok(logical.CreateOperation, "accounts/team-a/dns/owned", map[string]any{"type": "domeneshop", "api_token": "tok", "api_secret": "sec"})
 
 	for _, key := range []string{"certs/owned/meta", "config/dns/owned"} {
 		entry, err := h.storage.Get(context.Background(), key)

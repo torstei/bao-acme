@@ -63,7 +63,7 @@ func TestAnotherAccountCannotReachACertificate(t *testing.T) {
 
 func TestAnotherAccountCannotUseADNSProvider(t *testing.T) {
 	h, _ := twoAccounts(t)
-	h.ok(logical.CreateOperation, "accounts/a/dns/dns-a", map[string]any{"provider": "domeneshop", "api_token": "t", "api_secret": "s"})
+	h.ok(logical.CreateOperation, "accounts/a/dns/dns-a", map[string]any{"type": "domeneshop", "api_token": "t", "api_secret": "s"})
 
 	if resp, _ := h.do(logical.ReadOperation, "accounts/b/dns/dns-a", nil); resp != nil {
 		t.Errorf("b read a's DNS provider: %v", resp.Data)
@@ -71,14 +71,14 @@ func TestAnotherAccountCannotUseADNSProvider(t *testing.T) {
 	if keys, ok := h.ok(logical.ListOperation, "accounts/b/dns/", nil).Data["keys"]; ok {
 		t.Errorf("b's DNS list = %v", keys)
 	}
-	h.fails(logical.CreateOperation, "accounts/b/dns/dns-a", map[string]any{"provider": "domeneshop", "api_token": "x", "api_secret": "y"}, "used by another account")
+	h.fails(logical.CreateOperation, "accounts/b/dns/dns-a", map[string]any{"type": "domeneshop", "api_token": "x", "api_secret": "y"}, "used by another account")
 	h.ok(logical.DeleteOperation, "accounts/b/dns/dns-a", nil)
 	if e, _ := loadDNS(context.Background(), h.storage, "dns-a"); e == nil || e.Settings["api_token"] != "t" {
 		t.Error("b changed or removed a's DNS provider")
 	}
 
 	h.ok(logical.UpdateOperation, "config/accounts/b", map[string]any{"directory_url": "letsencrypt-staging"})
-	h.fails(logical.CreateOperation, "accounts/b/certs/b-www", map[string]any{"names": "www.example.test", "dns_provider": "dns-a"}, `account "b" has no DNS provider named "dns-a"`)
+	h.fails(logical.CreateOperation, "accounts/b/certs/b-www", map[string]any{"names": "www.example.test", "dns": "dns-a"}, `account "b" has no DNS provider named "dns-a"`)
 
 	if read := h.ok(logical.ReadOperation, "accounts/a/dns/dns-a", nil); read.Data["account"] != "a" {
 		t.Errorf("a's DNS provider = %v", read.Data)
@@ -88,7 +88,7 @@ func TestAnotherAccountCannotUseADNSProvider(t *testing.T) {
 func TestNewEntriesRecordTheirAccount(t *testing.T) {
 	h, _ := twoAccounts(t)
 	ctx := context.Background()
-	h.ok(logical.CreateOperation, "accounts/a/dns/dns-a", map[string]any{"provider": "domeneshop", "api_token": "t", "api_secret": "s"})
+	h.ok(logical.CreateOperation, "accounts/a/dns/dns-a", map[string]any{"type": "domeneshop", "api_token": "t", "api_secret": "s"})
 
 	if m, _ := loadMeta(ctx, h.storage, "shared"); m.Account != "a" {
 		t.Errorf("certificate account = %q", m.Account)
@@ -98,7 +98,7 @@ func TestNewEntriesRecordTheirAccount(t *testing.T) {
 	}
 	c := testcerts.New(t, testcerts.Options{})
 	h.fails(logical.UpdateOperation, "accounts/nobody/certs/x/import", map[string]any{"fullchain": c.Fullchain, "privkey": c.Privkey}, `no account named "nobody"`)
-	h.fails(logical.CreateOperation, "accounts/nobody/dns/x", map[string]any{"provider": "domeneshop", "api_token": "t", "api_secret": "s"}, `no account named "nobody"`)
+	h.fails(logical.CreateOperation, "accounts/nobody/dns/x", map[string]any{"type": "domeneshop", "api_token": "t", "api_secret": "s"}, `no account named "nobody"`)
 }
 
 func TestStatusByAccount(t *testing.T) {
@@ -135,7 +135,7 @@ func TestDeletesRefusedWhileInUse(t *testing.T) {
 
 	e.ok(logical.UpdateOperation, "certs/www/unmanage", nil)
 	if err := putJSON(context.Background(), e.storage, inflightKey("www"), &inflightEntry{
-		Account: "le", DNSProvider: "bind",
+		Account: "le", DNS: "bind",
 		Published: []publishedRecord{{Domain: "www.example.test", Token: "tok", KeyAuth: testKeyAuth}},
 	}); err != nil {
 		t.Fatal(err)

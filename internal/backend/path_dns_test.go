@@ -18,12 +18,15 @@ func TestDNSProviderLifecycle(t *testing.T) {
 	h := newHarness(t)
 
 	created := h.ok(logical.CreateOperation, "config/dns/domeneshop", map[string]any{
-		"provider":   "domeneshop",
+		"type":       "domeneshop",
 		"api_token":  "tok-123",
 		"api_secret": "sec-456",
 	})
-	if created.Data["provider"] != "domeneshop" || created.Data["api_token_set"] != true || created.Data["api_secret_set"] != true {
+	if created.Data["type"] != "domeneshop" || created.Data["api_token_set"] != true || created.Data["api_secret_set"] != true {
 		t.Fatalf("created = %v", created.Data)
+	}
+	if _, ok := created.Data["provider"]; ok {
+		t.Error("read shows the old field provider")
 	}
 	if created.Data["egress"] != "HTTPS to api.domeneshop.no" {
 		t.Errorf("egress = %v", created.Data["egress"])
@@ -42,7 +45,7 @@ func TestDNSProviderLifecycle(t *testing.T) {
 	}
 
 	h.fails(logical.UpdateOperation, "config/dns/domeneshop", map[string]any{"api_secret": ""}, "needs api_secret")
-	h.fails(logical.UpdateOperation, "config/dns/domeneshop", map[string]any{"provider": "cloudflare"}, "cannot change")
+	h.fails(logical.UpdateOperation, "config/dns/domeneshop", map[string]any{"type": "cloudflare"}, "cannot change")
 	h.fails(logical.UpdateOperation, "config/dns/domeneshop", map[string]any{"nameserver": "ns.example"}, `no setting "nameserver"`)
 	if stored, _ := loadDNS(context.Background(), h.storage, "domeneshop"); stored.Settings["api_secret"] != "sec-789" {
 		t.Error("a rejected update changed the stored settings")
@@ -59,11 +62,12 @@ func TestDNSProviderLifecycle(t *testing.T) {
 
 func TestDNSProviderValidation(t *testing.T) {
 	h := newHarness(t)
-	h.fails(logical.CreateOperation, "config/dns/x", map[string]any{"api_token": "t"}, "provider is required")
-	h.fails(logical.CreateOperation, "config/dns/x", map[string]any{"provider": "route66"}, "unknown provider")
-	h.fails(logical.CreateOperation, "config/dns/x", map[string]any{"provider": "domeneshop", "api_token": "t"}, "needs api_secret")
-	h.fails(logical.CreateOperation, "config/dns/x", map[string]any{"provider": "cloudflare", "email": "a@b.c"}, "set together")
-	h.fails(logical.CreateOperation, "config/dns/x", map[string]any{"provider": "dnsupdate", "nameserver": "ns", "tsig_algorithm": "hmac-md5"}, "tsig_algorithm")
+	h.fails(logical.CreateOperation, "config/dns/x", map[string]any{"api_token": "t"}, "type is required")
+	h.fails(logical.CreateOperation, "config/dns/x", map[string]any{"provider": "domeneshop", "api_token": "t", "api_secret": "s"}, "type is required")
+	h.fails(logical.CreateOperation, "config/dns/x", map[string]any{"type": "route66"}, "unknown type")
+	h.fails(logical.CreateOperation, "config/dns/x", map[string]any{"type": "domeneshop", "api_token": "t"}, "needs api_secret")
+	h.fails(logical.CreateOperation, "config/dns/x", map[string]any{"type": "cloudflare", "email": "a@b.c"}, "set together")
+	h.fails(logical.CreateOperation, "config/dns/x", map[string]any{"type": "dnsupdate", "nameserver": "ns", "tsig_algorithm": "hmac-md5"}, "tsig_algorithm")
 	if resp, _ := h.do(logical.ReadOperation, "config/dns/x", nil); resp != nil {
 		t.Error("a rejected create was stored")
 	}
@@ -73,11 +77,11 @@ func TestDNSUpdateNotProxiedWarning(t *testing.T) {
 	h := newHarness(t)
 	h.ok(logical.UpdateOperation, "config/network", map[string]any{"proxy_url": "http://proxy.example:3128"})
 
-	resp := h.ok(logical.CreateOperation, "config/dns/bind", map[string]any{"provider": "dnsupdate", "nameserver": "10.0.0.53"})
+	resp := h.ok(logical.CreateOperation, "config/dns/bind", map[string]any{"type": "dnsupdate", "nameserver": "10.0.0.53"})
 	if len(resp.Warnings) != 1 || !strings.Contains(resp.Warnings[0], "does not go through the proxy") {
 		t.Errorf("warnings = %v", resp.Warnings)
 	}
-	if resp := h.ok(logical.CreateOperation, "config/dns/ds", map[string]any{"provider": "domeneshop", "api_token": "t", "api_secret": "s"}); len(resp.Warnings) != 0 {
+	if resp := h.ok(logical.CreateOperation, "config/dns/ds", map[string]any{"type": "domeneshop", "api_token": "t", "api_secret": "s"}); len(resp.Warnings) != 0 {
 		t.Errorf("warnings for an HTTP provider = %v", resp.Warnings)
 	}
 }
@@ -91,7 +95,7 @@ func TestStoredDNSProviderPublishes(t *testing.T) {
 	t.Cleanup(func() { dns01.SetDefaultClient(prev) })
 
 	h.ok(logical.CreateOperation, "config/dns/bind", map[string]any{
-		"provider": "dnsupdate", "nameserver": d.Addr, "tsig_key": tsigName, "tsig_secret": tsigSecret,
+		"type": "dnsupdate", "nameserver": d.Addr, "tsig_key": tsigName, "tsig_secret": tsigSecret,
 	})
 	e, err := loadDNS(context.Background(), h.storage, "bind")
 	if err != nil {

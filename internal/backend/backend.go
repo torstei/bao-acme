@@ -104,7 +104,7 @@ can obtain and renew them over ACME with DNS-01.
 Everything is done with an account. Its settings are at config/accounts/<account>;
 its DNS providers at accounts/<account>/dns/<name>; its certificates at
 accounts/<account>/certs/<name>. Import a certificate at .../certs/<name>/import,
-or write names and dns_provider to .../certs/<name> to have the engine obtain it.
+or write names and dns to .../certs/<name> to have the engine obtain it.
 Read it, key included, from .../certs/<name>, and its description alone from
 .../certs/<name>/info.
 

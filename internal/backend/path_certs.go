@@ -65,9 +65,9 @@ func pathCert(b *backend) *framework.Path {
 				Type:        framework.TypeString,
 				Description: fmt.Sprintf("Key type for a managed certificate: %s. Default %s.", strings.Join(cert.KeyTypes, ", "), defaultCertKeyType),
 			},
-			"dns_provider": {
+			"dns": {
 				Type:        framework.TypeString,
-				Description: "DNS provider (accounts/<account>/dns/<name>, one of this account's) for a managed certificate's DNS-01 challenges.",
+				Description: "DNS provider for a managed certificate's DNS-01 challenges: the name of one of this account's, at accounts/<account>/dns/<name>.",
 			},
 			"reuse_key": {
 				Type:        framework.TypeBool,
@@ -368,7 +368,7 @@ func definitionData(s *managedSpec) map[string]any {
 		"names":        s.Names,
 		"key_type":     s.KeyType,
 		"account":      s.Account,
-		"dns_provider": s.DNSProvider,
+		"dns":          s.DNS,
 		"reuse_key":    s.ReuseKey,
 		"defined_time": s.DefinedTime,
 	}

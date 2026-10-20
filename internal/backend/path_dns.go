@@ -20,7 +20,7 @@ import (
 type dnsEntry struct {
 	// Account owns the provider; only its certificates may use it.
 	Account                   string            `json:"account,omitempty"`
-	Provider                  string            `json:"provider"`
+	Type                      string            `json:"provider"`
 	Settings                  map[string]string `json:"settings"`
 	TTL                       int               `json:"ttl,omitempty"`
 	PropagationTimeoutSeconds int               `json:"propagation_timeout_seconds,omitempty"`
@@ -51,9 +51,9 @@ func (e *dnsEntry) common() dnsprovider.Common {
 
 // provider builds the lego provider, its HTTP going the way n says.
 func (e *dnsEntry) provider(n *networkEntry) (challenge.Provider, error) {
-	spec, ok := dnsprovider.Lookup(e.Provider)
+	spec, ok := dnsprovider.Lookup(e.Type)
 	if !ok {
-		return nil, fmt.Errorf("unknown DNS provider %q", e.Provider)
+		return nil, fmt.Errorf("unknown DNS provider %q", e.Type)
 	}
 	network, err := n.network()
 	if err != nil {
@@ -85,9 +85,9 @@ func pathDNS(b *backend) *framework.Path {
 			Description: "Name of this DNS provider configuration.",
 			Required:    true,
 		},
-		"provider": {
+		"type": {
 			Type:          framework.TypeString,
-			Description:   "lego provider: " + strings.Join(dnsprovider.Names(), ", ") + ". Fixed once created.",
+			Description:   "Provider type: " + strings.Join(dnsprovider.Names(), ", ") + ". Fixed once created.",
 			AllowedValues: toAny(dnsprovider.Names()),
 		},
 		"ttl": {
@@ -202,13 +202,13 @@ func dnsLockName(name string) string {
 func dnsData(e *dnsEntry) map[string]any {
 	data := map[string]any{
 		"account":             e.Account,
-		"provider":            e.Provider,
+		"type":                e.Type,
 		"ttl":                 e.TTL,
 		"propagation_timeout": e.PropagationTimeoutSeconds,
 		"polling_interval":    e.PollingIntervalSeconds,
 		"created_time":        e.CreatedTime,
 	}
-	spec, ok := dnsprovider.Lookup(e.Provider)
+	spec, ok := dnsprovider.Lookup(e.Type)
 	if !ok {
 		return data
 	}
@@ -244,18 +244,18 @@ func (b *backend) handleDNSWrite(ctx context.Context, req *logical.Request, d *f
 		e = &dnsEntry{Account: account, Settings: map[string]string{}, CreatedTime: b.now().UTC()}
 	}
 
-	if raw, ok := d.GetOk("provider"); ok {
-		if !creating && raw.(string) != e.Provider {
-			return logical.ErrorResponse("provider cannot change; create a new DNS provider configuration instead"), logical.ErrInvalidRequest
+	if raw, ok := d.GetOk("type"); ok {
+		if !creating && raw.(string) != e.Type {
+			return logical.ErrorResponse("type cannot change; create a new DNS provider configuration instead"), logical.ErrInvalidRequest
 		}
-		e.Provider = raw.(string)
+		e.Type = raw.(string)
 	}
-	if e.Provider == "" {
-		return logical.ErrorResponse("provider is required: one of %s", strings.Join(dnsprovider.Names(), ", ")), logical.ErrInvalidRequest
+	if e.Type == "" {
+		return logical.ErrorResponse("type is required: one of %s", strings.Join(dnsprovider.Names(), ", ")), logical.ErrInvalidRequest
 	}
-	spec, ok := dnsprovider.Lookup(e.Provider)
+	spec, ok := dnsprovider.Lookup(e.Type)
 	if !ok {
-		return logical.ErrorResponse("unknown provider %q; use one of %s", e.Provider, strings.Join(dnsprovider.Names(), ", ")), logical.ErrInvalidRequest
+		return logical.ErrorResponse("unknown type %q; use one of %s", e.Type, strings.Join(dnsprovider.Names(), ", ")), logical.ErrInvalidRequest
 	}
 
 	settings := maps.Clone(e.Settings)
@@ -265,7 +265,7 @@ func (b *backend) handleDNSWrite(ctx context.Context, req *logical.Request, d *f
 			continue
 		}
 		if _, belongs := spec.Field(field); !belongs {
-			return logical.ErrorResponse("%s has no setting %q", e.Provider, field), logical.ErrInvalidRequest
+			return logical.ErrorResponse("%s has no setting %q", e.Type, field), logical.ErrInvalidRequest
 		}
 		if v := strings.TrimSpace(raw.(string)); v == "" {
 			delete(settings, field)
@@ -294,7 +294,7 @@ func (b *backend) handleDNSWrite(ctx context.Context, req *logical.Request, d *f
 	resp := &logical.Response{Data: dnsData(e)}
 	if !spec.HTTP {
 		if n, err := loadNetwork(ctx, req.Storage); err == nil && n.ProxyURL != "" {
-			resp.AddWarning(fmt.Sprintf("%s does not use HTTP, so its traffic does not go through the proxy: %s", e.Provider, spec.Egress))
+			resp.AddWarning(fmt.Sprintf("%s does not use HTTP, so its traffic does not go through the proxy: %s", e.Type, spec.Egress))
 		}
 	}
 	return resp, nil

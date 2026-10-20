@@ -347,7 +347,7 @@ by a trailing slash, so a policy cannot grant one where the other was meant, and
 | `accounts/<account>/dns/` | list | The account's DNS providers. |
 | `accounts/<account>/dns/<provider>` | write, read, delete | A DNS provider, as `config/dns/<name>` was. Usable only by this account's certificates. Delete is refused while a certificate uses it, or an in-flight entry still needs it to remove records. |
 | `accounts/<account>/certs/` | list | The account's certificates, with `covers` as before. Found by reading each certificate's owner, which is fine for hundreds of certificates. |
-| `accounts/<account>/certs/<cert>` | write, read, delete | As `certs/<name>` was. A definition takes `names`, `dns_provider` (one of this account's), `key_type` and `reuse_key`; no `account`, since the path gives it. |
+| `accounts/<account>/certs/<cert>` | write, read, delete | As `certs/<name>` was. A definition takes `names`, `dns` (one of this account's DNS providers; `dns_provider` until v0.5.0, §4.6), `key_type` and `reuse_key`; no `account`, since the path gives it. |
 | `accounts/<account>/certs/<cert>/…` | | `import`, `info`, `status`, `versions/<n>`, `rollback`, `destroy`, `renew`, `unmanage`, as before. |
 | `accounts/<account>/status` | read | The account's certificates, as the mount's `status`. |
 | `config/network` | write, read, delete | Unchanged: mount-wide, for the operator. |
@@ -399,6 +399,43 @@ network settings and monitoring fully apart.
 
 4.5.10. The storage stays format 1. Certificates and DNS providers gain an `account` field naming
 their owner (§5.7).
+
+### 4.6. Clearer names (v0.5.0)
+
+4.6.1. In v0.4.0, `dns_provider=domeneshop` named the entry at `accounts/<account>/dns/domeneshop`,
+which was itself created with `provider=domeneshop`. The same word meant both the entry's name
+and its kind. Two fields are renamed, in writes and in reads:
+
+4.6.1.1. A certificate definition's `dns_provider` becomes `dns`, after the path segment it points
+into.
+
+4.6.1.2. A DNS provider's `provider` becomes `type`.
+
+4.6.2. The old names are not accepted. Both fields are required, so a write that still uses an old
+name is refused for lacking the new one. The stored keys stay `dns_provider` and `provider`
+(§5.6.1), so storage format 1 is unchanged and existing definitions need nothing.
+
+4.6.3. Usage, for a first certificate:
+
+```sh
+bao write certificates/config/accounts/example-company-account directory_url=letsencrypt terms_of_service_agreed=true
+bao write certificates/accounts/example-company-account/dns/example-domeneshop type=domeneshop api_token=… api_secret=…
+bao write certificates/accounts/example-company-account/certs/branch-web-certname names=branch.example.com dns=example-domeneshop
+bao read  certificates/accounts/example-company-account/certs/branch-web-certname
+```
+
+4.6.4. Decided against:
+
+4.6.4.1. **A default for `names`.** A certificate's name is only a label, and the engine never
+reads a DNS name out of it. Naming certificates after their first domain, as certbot does, is a
+convention users may choose.
+
+4.6.4.2. **An optional `dns`** when the account has one DNS provider. Every definition states how
+it is validated, and adding a second provider changes nothing for the existing ones.
+
+4.6.4.3. **Certificates under their DNS provider's path.** Moving a zone to another DNS provider
+must not move the certificate's path, which its consumers and policies use. The DNS provider is a
+setting of the certificate, not part of its address.
 
 ## 5. Storage
 
@@ -461,7 +498,7 @@ wrote, both on upgrade and when restoring an old Raft snapshot.
 | `certs/<name>/versions/<n>` | One version: certificate, chain, key and description, in one entry. |
 | `config/accounts/<name>` | An ACME account: its settings, its key (PKCS #8 PEM), and, once registered, a `registration` object with the account URL, status, contact, the address last sent to the CA (`contact_sent`) and terms of service URL. |
 | `config/network` | The proxy URL, credentials included, `proxy_ca_bundle`, and the DNS settings of §7.1.7. Absent means direct connections and the defaults. |
-| `config/dns/<name>` | A DNS provider: `provider`, a `settings` object with its fields, credentials included, and the common timing settings. |
+| `config/dns/<name>` | A DNS provider: `provider` (the API's `type`, §4.6), a `settings` object with its fields, credentials included, and the common timing settings. |
 | `certs/<name>/inflight` | While an attempt runs, or after it was interrupted: the attempt's private key, its definition, the order URL, and the challenge records not yet removed (§6.2.2). |
 
 5.6.2. A `meta` entry:
