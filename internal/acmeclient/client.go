@@ -31,17 +31,21 @@ type Account struct {
 	CABundle []*x509.Certificate
 	// AccountURL is empty until the account is registered.
 	AccountURL string
-	EABKeyID   string
-	EABHMACKey string
+	// ContactSent is the address last given to the CA.
+	ContactSent string
+	EABKeyID    string
+	EABHMACKey  string
 	// Network is how to reach the CA; nil means directly.
 	Network *Network
 }
 
 // Registration is the CA's view of an account.
 type Registration struct {
-	AccountURL     string
-	Status         string
-	Contact        []string
+	AccountURL string
+	Status     string
+	Contact    []string
+	// ContactSent is the address last given to the CA.
+	ContactSent    string
 	TermsOfService string
 	// CAAIdentities are the issuer domain names the CA recognises in CAA
 	// records, such as "letsencrypt.org".
@@ -167,7 +171,7 @@ func Register(ctx context.Context, a *Account, termsAgreed bool) (*Registration,
 			return nil, dir, fmt.Errorf("looking up the existing account: %w", err)
 		}
 	}
-	return registrationOf(acct, dir), dir, nil
+	return registrationOf(acct, dir, a.Email), dir, nil
 }
 
 // Refresh reads a registered account from the CA, first updating its
@@ -186,28 +190,37 @@ func Refresh(ctx context.Context, a *Account) (*Registration, *Directory, error)
 	if err != nil {
 		return nil, dir, fmt.Errorf("reading the account: %w", err)
 	}
-	if !SameContact(acct.Contact, a.Email) {
+	sent := a.ContactSent
+	if !ContactCurrent(acct.Contact, a.Email, sent) {
 		acct, err = client.Registration.UpdateRegistration(ctx, registration.RegisterOptions{})
 		if err != nil {
 			return nil, dir, fmt.Errorf("updating the contact: %w", err)
 		}
+		sent = a.Email
 	}
-	return registrationOf(acct, dir), dir, nil
+	return registrationOf(acct, dir, sent), dir, nil
 }
 
-// SameContact reports whether an ACME contact list is just email.
-func SameContact(contact []string, email string) bool {
+// ContactCurrent reports whether the CA has email as the account's contact,
+// as far as it keeps one. A CA may keep no contact at all (Let's Encrypt
+// forwards the address to a mailing list and returns none), so an empty
+// contact counts once email has been sent.
+func ContactCurrent(contact []string, email, sent string) bool {
 	if email == "" {
 		return len(contact) == 0
+	}
+	if len(contact) == 0 {
+		return strings.EqualFold(sent, email)
 	}
 	return len(contact) == 1 && strings.EqualFold(contact[0], mailto+email)
 }
 
-func registrationOf(acct *acme.ExtendedAccount, dir *Directory) *Registration {
+func registrationOf(acct *acme.ExtendedAccount, dir *Directory, sent string) *Registration {
 	return &Registration{
 		AccountURL:     acct.Location,
 		Status:         acct.Status,
 		Contact:        acct.Contact,
+		ContactSent:    sent,
 		TermsOfService: dir.TermsOfService,
 		CAAIdentities:  dir.CAAIdentities,
 	}

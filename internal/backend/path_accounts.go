@@ -41,6 +41,7 @@ type accountRegistration struct {
 	AccountURL     string    `json:"account_url"`
 	Status         string    `json:"status"`
 	Contact        []string  `json:"contact,omitempty"`
+	ContactSent    string    `json:"contact_sent,omitempty"`
 	TermsOfService string    `json:"terms_of_service,omitempty"`
 	CAAIdentities  []string  `json:"caa_identities,omitempty"`
 	RegisteredTime time.Time `json:"registered_time"`
@@ -98,6 +99,7 @@ func (a *accountEntry) client() (*acmeclient.Account, error) {
 	}
 	if a.Registration != nil {
 		c.AccountURL = a.Registration.AccountURL
+		c.ContactSent = a.Registration.ContactSent
 	}
 	return c, nil
 }
@@ -336,7 +338,7 @@ func (b *backend) handleAccountWrite(ctx context.Context, req *logical.Request, 
 		return nil, err
 	}
 	resp := &logical.Response{Data: accountData(a)}
-	if registered && a.Registration != nil && !acmeclient.SameContact(a.Registration.Contact, a.Email) {
+	if registered && a.Registration != nil && !acmeclient.ContactCurrent(a.Registration.Contact, a.Email, a.Registration.ContactSent) {
 		resp.AddWarning("the contact differs from the CA's; write to register to update it there")
 	}
 	return resp, nil
@@ -405,6 +407,7 @@ func (b *backend) handleAccountRegister(ctx context.Context, req *logical.Reques
 	a.Registration.AccountURL = reg.AccountURL
 	a.Registration.Status = reg.Status
 	a.Registration.Contact = reg.Contact
+	a.Registration.ContactSent = reg.ContactSent
 	a.Registration.TermsOfService = reg.TermsOfService
 	a.Registration.CAAIdentities = reg.CAAIdentities
 	a.Registration.CheckedTime = now

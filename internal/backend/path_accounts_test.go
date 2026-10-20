@@ -26,6 +26,35 @@ func (h *harness) storedAccount(name string) *accountEntry {
 	return a
 }
 
+// TestCAKeepingNoContactIsNotAMismatch: with a CA that keeps no contact,
+// as Let's Encrypt, the account neither warns nor sends the address again.
+func TestCAKeepingNoContactIsNotAMismatch(t *testing.T) {
+	h := newHarness(t)
+	p := acmetest.Start(t, acmetest.Options{KeepNoContact: true})
+	h.ok(logical.CreateOperation, "config/accounts/test", map[string]any{
+		"directory_url": p.DirectoryURL, "email": "ops@example.com", "ca_bundle": p.CAPEM, "terms_of_service_agreed": true,
+	})
+	h.ok(logical.UpdateOperation, "config/accounts/test/register", nil)
+	h.ok(logical.UpdateOperation, "config/accounts/test/register", nil)
+	if n := p.ContactUpdates(); n != 0 {
+		t.Errorf("sent the unchanged address %d times", n)
+	}
+	if w := h.ok(logical.UpdateOperation, "config/accounts/test", map[string]any{"key_type": "ecdsa-p256"}).Warnings; len(w) != 0 {
+		t.Errorf("warnings = %v", w)
+	}
+
+	if w := h.ok(logical.UpdateOperation, "config/accounts/test", map[string]any{"email": "new@example.com"}).Warnings; len(w) != 1 {
+		t.Errorf("no warning about a changed address: %v", w)
+	}
+	h.ok(logical.UpdateOperation, "config/accounts/test/register", nil)
+	if n := p.ContactUpdates(); n != 1 {
+		t.Errorf("a changed address was sent %d times, want once", n)
+	}
+	if w := h.ok(logical.UpdateOperation, "config/accounts/test", map[string]any{"key_type": "ecdsa-p256"}).Warnings; len(w) != 0 {
+		t.Errorf("warnings after the update = %v", w)
+	}
+}
+
 func TestAccountLifecycle(t *testing.T) {
 	h := newHarness(t)
 	p := acmetest.Start(t, acmetest.Options{})
