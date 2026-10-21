@@ -87,7 +87,7 @@ func TestReadsStorageV1(t *testing.T) {
 		t.Errorf("an account reached an unowned certificate: %v", resp.Data)
 	}
 	certs := h.ok(logical.ReadOperation, "status", nil).Data["certificates"].(map[string]any)
-	if s, ok := certs["example.com"].(map[string]any); !ok || s["account"] != "" {
+	if s, ok := certs["example.com"].(map[string]any); !ok || s["account"] != nil {
 		t.Errorf("mount status = %v", certs["example.com"])
 	}
 
@@ -254,7 +254,7 @@ func TestReadsStorageV1Managed(t *testing.T) {
 		t.Errorf("managed info = %v", info.Data)
 	}
 	issuance := info.Data["issuance"].(map[string]any)
-	if issuance["last_success_time"].(time.Time).IsZero() || issuance["needed"] != "" {
+	if issuance["last_success_time"].(time.Time).IsZero() || issuance["needed"] != nil {
 		t.Errorf("managed issuance = %v", issuance)
 	}
 	if renewal, _ := issuance["renewal"].(map[string]any); renewal["source"] != scheduleARI || renewal["renew_at"].(time.Time).IsZero() || renewal["window_end"].(time.Time).IsZero() {

@@ -123,6 +123,8 @@ names are unique per mount: writing a name another account owns is refused.
 A write that takes no fields, such as `register`, `renew` or `unmanage`, needs `bao write -f`;
 without it, `bao` stops with "Must supply data or use -force".
 
+A field that does not apply, such as an unset time or an empty error, is left out of a read.
+
 ### Accounts (the operator)
 
 | Path | Method | |

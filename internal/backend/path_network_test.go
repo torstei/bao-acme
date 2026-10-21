@@ -17,7 +17,7 @@ import (
 func TestNetworkDefaults(t *testing.T) {
 	h := newHarness(t)
 	n := h.ok(logical.ReadOperation, "config/network", nil)
-	if n.Data["proxy_url"] != "" || n.Data["dns_propagation_check"] != "authoritative" || n.Data["dns_tcp_only"] != false {
+	if n.Data["proxy_url"] != nil || n.Data["dns_propagation_check"] != "authoritative" || n.Data["dns_tcp_only"] != false {
 		t.Errorf("defaults = %v", n.Data)
 	}
 }
@@ -41,7 +41,7 @@ func TestNetworkProxyCredentialsAreWriteOnly(t *testing.T) {
 	}
 
 	h.ok(logical.UpdateOperation, "config/network", map[string]any{"proxy_url": ""})
-	if n := h.ok(logical.ReadOperation, "config/network", nil); n.Data["proxy_url"] != "" || n.Data["proxy_credentials_set"] != false {
+	if n := h.ok(logical.ReadOperation, "config/network", nil); n.Data["proxy_url"] != nil || n.Data["proxy_credentials_set"] != false {
 		t.Errorf("after removing the proxy: %v", n.Data)
 	}
 }
