@@ -610,6 +610,9 @@ func (b *backend) obtain(ctx context.Context, s logical.Storage, name string, cl
 		Names:    spec.Names,
 		Key:      claim.key,
 		Replaces: claim.replaces,
+		OnReplacesRefused: func(err error) {
+			b.Logger().Warn("the CA refused to link the renewal to the certificate it replaces; ordering without", "certificate", name, "error", err)
+		},
 		OnOrderCreated: func(orderURL string) {
 			if err := b.updateInflight(context.WithoutCancel(ctx), s, name, func(e *inflightEntry) { e.OrderURL = orderURL }); err != nil {
 				b.Logger().Warn("could not record the order URL", "certificate", name, "error", err)

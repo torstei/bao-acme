@@ -711,6 +711,14 @@ get ARI like issued ones, because asking needs no account.
 issued it, because a CA refuses to link certificates across accounts. If the CA answers that the
 certificate was already replaced, lego orders again without it.
 
+6.4.6.1. `replaces` only links the renewal to its predecessor, for the CA's rate limits and
+renewal window, so it must never cost the renewal. If the CA refuses to create the order for any
+other reason, the engine orders once more without it, and logs a warning. Examples are a
+definition whose names no longer overlap the old certificate's, or Pebble missing serials that
+have the top bit set. The exception is a rate limit, which `replaces` may be what exempts the
+order from. A failure after the order was created, such as a failed validation, is not retried
+this way.
+
 6.4.7. A CA may reuse an authorization it validated recently for the same account and name. A
 renewal soon after issuance then needs no DNS-01 challenge, so it succeeds even when the DNS
 provider is misconfigured. Issuing does not prove the DNS provider still works.
