@@ -104,7 +104,7 @@ func TestManagedIssuance(t *testing.T) {
 		t.Errorf("names = %s", got)
 	}
 	issuance := info.Data["issuance"].(map[string]any)
-	if issuance["needed"] != "" || issuance["failures"] != 0 || issuance["last_success_time"].(time.Time).IsZero() {
+	if issuance["needed"] != nil || issuance["failures"] != 0 || issuance["last_success_time"].(time.Time).IsZero() {
 		t.Errorf("issuance = %v", issuance)
 	}
 

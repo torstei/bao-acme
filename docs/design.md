@@ -94,7 +94,8 @@ digest.
 ## 4. API
 
 Paths are relative to the mount. "Write-only" fields are accepted on write and never returned:
-reads show only whether they are set.
+reads show only whether they are set. A field that does not apply, such as an unset time or an
+empty error, is left out of the response rather than shown empty (v0.5.0).
 
 *v0.4.0 moves every path under an account (§4.5).* §4.1 and §4.2 describe what each path does,
 and still apply; §4.5 says where the paths are now.

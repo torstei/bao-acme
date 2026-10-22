@@ -410,6 +410,9 @@ func TestIntegration(t *testing.T) {
 		if fmt.Sprint(issuance["failures"]) != "1" || !strings.Contains(fmt.Sprint(issuance["last_error"]), "127.0.0.1:1") {
 			t.Fatalf("issuance = %v", issuance)
 		}
+		if v, ok := issuance["last_success_time"]; ok {
+			t.Errorf("a certificate never issued shows last_success_time %v", v)
+		}
 
 		status := read(t, c.client, "accounts/unreachable/certs/background/status").Data
 		attempts, _ := status["attempts"].([]any)
