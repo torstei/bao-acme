@@ -33,7 +33,7 @@ func scheduledFor(sha string) func(*certMeta) bool {
 
 func (e *managedEnv) current(name string) *certVersion {
 	e.t.Helper()
-	_, v, err := loadCurrentLocked(context.Background(), e.storage, name)
+	_, v, err := loadCurrentLocked(context.Background(), e.storage, e.id(name))
 	if err != nil || v == nil {
 		e.t.Fatalf("%s: no current version: %v", name, err)
 	}
@@ -171,10 +171,10 @@ func TestReplacesOnlyOwnCertificates(t *testing.T) {
 	e := newManagedEnv(t)
 	e.imp("site", testcerts.New(t, testcerts.Options{Names: []string{"site.example.test"}}))
 	e.define("site", "site.example.test")
-	if err := e.b.requestRenewal(context.Background(), e.storage, "le", "site", false); err != nil {
+	if err := e.b.requestRenewal(context.Background(), e.storage, e.id("site"), false); err != nil {
 		t.Fatal(err)
 	}
-	claim, err := e.b.claimIssuance(context.Background(), e.storage, "site")
+	claim, err := e.b.claimIssuance(context.Background(), e.storage, e.id("site"))
 	if err != nil || claim == nil {
 		t.Fatalf("claim = %v, %v", claim, err)
 	}
@@ -184,11 +184,11 @@ func TestReplacesOnlyOwnCertificates(t *testing.T) {
 
 	e.define("www", "www.example.test")
 	e.waitFor("www", "the certificate", hasVersion(1))
-	if err := e.b.requestRenewal(context.Background(), e.storage, "le", "www", false); err != nil {
+	if err := e.b.requestRenewal(context.Background(), e.storage, e.id("www"), false); err != nil {
 		t.Fatal(err)
 	}
 	e.b.issuer.stop()
-	claim, err = e.b.claimIssuance(context.Background(), e.storage, "www")
+	claim, err = e.b.claimIssuance(context.Background(), e.storage, e.id("www"))
 	if err != nil || claim == nil || claim.replaces == nil {
 		t.Fatalf("own certificate not named as replaced: %+v, %v", claim, err)
 	}

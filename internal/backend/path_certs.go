@@ -228,16 +228,16 @@ func pathCertDestroy(b *backend) *framework.Path {
 }
 
 func (b *backend) handleList(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	account := d.Get("account").(string)
-	names, err := listNames(ctx, req.Storage)
+	ids, err := listCertIDs(ctx, req.Storage, d.Get("account").(string))
 	if err != nil {
 		return nil, err
 	}
 	host := d.Get("covers").(string)
 
 	matching := []string{}
-	for _, name := range names {
-		m, _, err := ownedMeta(ctx, req.Storage, account, name)
+	for _, id := range ids {
+		_, name := splitCertID(id)
+		m, err := loadMeta(ctx, req.Storage, id)
 		if err != nil {
 			return nil, err
 		}
@@ -248,7 +248,7 @@ func (b *backend) handleList(ctx context.Context, req *logical.Request, d *frame
 			matching = append(matching, name)
 			continue
 		}
-		v, err := loadVersion(ctx, req.Storage, name, m.CurrentVersion)
+		v, err := loadVersion(ctx, req.Storage, id, m.CurrentVersion)
 		if err != nil {
 			return nil, err
 		}
@@ -260,12 +260,12 @@ func (b *backend) handleList(ctx context.Context, req *logical.Request, d *frame
 }
 
 func (b *backend) handleRead(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	account, name := d.Get("account").(string), d.Get("name").(string)
+	_, name := pathCertID(d)
 	l := b.lock(name)
 	l.RLock()
 	defer l.RUnlock()
 
-	m, _, err := ownedMeta(ctx, req.Storage, account, name)
+	m, err := loadMeta(ctx, req.Storage, name)
 	if err != nil || m == nil {
 		return nil, err
 	}
@@ -273,13 +273,13 @@ func (b *backend) handleRead(ctx context.Context, req *logical.Request, d *frame
 }
 
 func (b *backend) handleReadVersion(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	account, name := d.Get("account").(string), d.Get("name").(string)
+	_, name := pathCertID(d)
 	n := d.Get("version").(int)
 	l := b.lock(name)
 	l.RLock()
 	defer l.RUnlock()
 
-	if m, _, err := ownedMeta(ctx, req.Storage, account, name); err != nil || m == nil {
+	if m, err := loadMeta(ctx, req.Storage, name); err != nil || m == nil {
 		return nil, err
 	}
 	return b.versionResponse(ctx, req.Storage, name, n)
@@ -302,12 +302,12 @@ func (b *backend) versionResponse(ctx context.Context, s logical.Storage, name s
 }
 
 func (b *backend) handleInfo(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	account, name := d.Get("account").(string), d.Get("name").(string)
+	_, name := pathCertID(d)
 	l := b.lock(name)
 	l.RLock()
 	defer l.RUnlock()
 
-	m, _, err := ownedMeta(ctx, req.Storage, account, name)
+	m, err := loadMeta(ctx, req.Storage, name)
 	if err != nil || m == nil {
 		return nil, err
 	}
@@ -350,7 +350,7 @@ func (b *backend) infoResponse(ctx context.Context, s logical.Storage, name stri
 		data = versionData(current)
 		data["destroyed"] = current.destroyed()
 	}
-	data["account"] = m.owner()
+	data["account"] = m.Account
 	data["current_version"] = m.CurrentVersion
 	data["latest_version"] = m.LatestVersion
 	data["max_versions"] = m.MaxVersions
@@ -429,7 +429,7 @@ func versionData(v *certVersion) map[string]any {
 }
 
 func (b *backend) handleImport(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	account, name := d.Get("account").(string), d.Get("name").(string)
+	account, name := pathCertID(d)
 	now := b.now().UTC()
 
 	bundle, err := cert.Parse(d.Get("fullchain").(string), d.Get("privkey").(string), now)
@@ -450,7 +450,7 @@ func (b *backend) handleImport(ctx context.Context, req *logical.Request, d *fra
 	l.Lock()
 	defer l.Unlock()
 
-	m, resp, err := newOwnedMeta(ctx, req.Storage, account, name)
+	m, resp, err := newMeta(ctx, req.Storage, account, name)
 	if resp != nil || err != nil {
 		return resp, err
 	}
@@ -499,14 +499,14 @@ func importResponse(v *certVersion, written bool) *logical.Response {
 }
 
 func (b *backend) handleRollback(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	account, name := d.Get("account").(string), d.Get("name").(string)
+	_, name := pathCertID(d)
 	n := d.Get("version").(int)
 
 	l := b.lock(name)
 	l.Lock()
 	defer l.Unlock()
 
-	m, _, err := ownedMeta(ctx, req.Storage, account, name)
+	m, err := loadMeta(ctx, req.Storage, name)
 	if err != nil {
 		return nil, err
 	}
@@ -538,7 +538,7 @@ func (b *backend) handleRollback(ctx context.Context, req *logical.Request, d *f
 }
 
 func (b *backend) handleDestroy(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	account, name := d.Get("account").(string), d.Get("name").(string)
+	_, name := pathCertID(d)
 	ns := d.Get("versions").([]int)
 	spki := strings.ToLower(strings.TrimSpace(d.Get("spki_sha256").(string)))
 	if (len(ns) == 0) == (spki == "") {
@@ -549,7 +549,7 @@ func (b *backend) handleDestroy(ctx context.Context, req *logical.Request, d *fr
 	l.Lock()
 	defer l.Unlock()
 
-	m, _, err := ownedMeta(ctx, req.Storage, account, name)
+	m, err := loadMeta(ctx, req.Storage, name)
 	if err != nil {
 		return nil, err
 	}
@@ -626,12 +626,12 @@ func (b *backend) handleDestroy(ctx context.Context, req *logical.Request, d *fr
 }
 
 func (b *backend) handleDelete(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	account, name := d.Get("account").(string), d.Get("name").(string)
+	_, name := pathCertID(d)
 	l := b.lock(name)
 	l.Lock()
 	defer l.Unlock()
 
-	if m, _, err := ownedMeta(ctx, req.Storage, account, name); err != nil || m == nil {
+	if m, err := loadMeta(ctx, req.Storage, name); err != nil || m == nil {
 		return nil, err
 	}
 	return nil, deleteCert(ctx, req.Storage, name)

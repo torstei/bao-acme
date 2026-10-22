@@ -313,11 +313,21 @@ func TestIntegration(t *testing.T) {
 		if s, err := teamB.Logical().Read(mount + "/accounts/team-b/certs/example.org"); err != nil || s != nil {
 			t.Errorf("team B reached team A's certificate through its own path: %v, %v", s, err)
 		}
-		_, err = teamB.Logical().Write(mount+"/accounts/team-b/certs/example.org/import", map[string]any{
-			"fullchain": other.Fullchain, "privkey": other.Privkey,
-		})
-		if err == nil || !strings.Contains(err.Error(), "used by another account") {
-			t.Errorf("team B importing over team A's name: %v", err)
+		teamAKey := read(t, c.client, "accounts/team-a/certs/example.org").Data["privkey"]
+		own := testcerts.New(t, testcerts.Options{Names: []string{"example.org"}})
+		if _, err := teamB.Logical().Write(mount+"/accounts/team-b/certs/example.org/import", map[string]any{
+			"fullchain": own.Fullchain, "privkey": own.Privkey,
+		}); err != nil {
+			t.Fatalf("team B using the same name as team A: %v", err)
+		}
+		if got := read(t, teamB, "accounts/team-b/certs/example.org").Data["privkey"]; got != own.Privkey {
+			t.Error("team B does not read its own certificate")
+		}
+		if got := read(t, c.client, "accounts/team-a/certs/example.org").Data["privkey"]; got != teamAKey {
+			t.Error("team B's certificate replaced team A's")
+		}
+		if _, err := teamB.Logical().Delete(mount + "/accounts/team-b/certs/example.org"); err != nil {
+			t.Fatal(err)
 		}
 	})
 

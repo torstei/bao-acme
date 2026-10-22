@@ -428,7 +428,7 @@ func (b *backend) periodic(ctx context.Context, req *logical.Request) error {
 	if b.standby() {
 		return nil
 	}
-	names, err := listNames(ctx, req.Storage)
+	names, err := listCertIDs(ctx, req.Storage, "")
 	if err != nil {
 		return err
 	}
@@ -594,7 +594,7 @@ func (b *backend) obtain(ctx context.Context, s logical.Storage, name string, cl
 	if err != nil {
 		return nil, err
 	}
-	dnsEntry, _, err := ownedDNS(ctx, s, spec.Account, spec.DNS)
+	dnsEntry, err := loadDNS(ctx, s, spec.Account, spec.DNS)
 	if err != nil {
 		return nil, err
 	}

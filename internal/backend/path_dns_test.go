@@ -39,7 +39,7 @@ func TestDNSProviderLifecycle(t *testing.T) {
 	}
 
 	h.ok(logical.UpdateOperation, "config/dns/domeneshop", map[string]any{"api_secret": "sec-789", "propagation_timeout": "10m"})
-	stored, err := loadDNS(context.Background(), h.storage, "domeneshop")
+	stored, err := loadDNS(context.Background(), h.storage, h.account, "domeneshop")
 	if err != nil || stored.Settings["api_token"] != "tok-123" || stored.Settings["api_secret"] != "sec-789" || stored.PropagationTimeoutSeconds != 600 {
 		t.Errorf("after a partial update: %+v, %v", stored, err)
 	}
@@ -47,7 +47,7 @@ func TestDNSProviderLifecycle(t *testing.T) {
 	h.fails(logical.UpdateOperation, "config/dns/domeneshop", map[string]any{"api_secret": ""}, "needs api_secret")
 	h.fails(logical.UpdateOperation, "config/dns/domeneshop", map[string]any{"type": "cloudflare"}, "cannot change")
 	h.fails(logical.UpdateOperation, "config/dns/domeneshop", map[string]any{"nameserver": "ns.example"}, `no setting "nameserver"`)
-	if stored, _ := loadDNS(context.Background(), h.storage, "domeneshop"); stored.Settings["api_secret"] != "sec-789" {
+	if stored, _ := loadDNS(context.Background(), h.storage, h.account, "domeneshop"); stored.Settings["api_secret"] != "sec-789" {
 		t.Error("a rejected update changed the stored settings")
 	}
 
@@ -97,7 +97,7 @@ func TestStoredDNSProviderPublishes(t *testing.T) {
 	h.ok(logical.CreateOperation, "config/dns/bind", map[string]any{
 		"type": "dnsupdate", "nameserver": d.Addr, "tsig_key": tsigName, "tsig_secret": tsigSecret,
 	})
-	e, err := loadDNS(context.Background(), h.storage, "bind")
+	e, err := loadDNS(context.Background(), h.storage, h.account, "bind")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -67,12 +67,19 @@ func (v *certVersion) leaf() (*x509.Certificate, error) {
 	return certs[0], nil
 }
 
-func metaKey(name string) string {
-	return "certs/" + name + "/meta"
+// certPrefix is where a certificate's entries are stored; id is
+// <account>/<name>, as certID makes it.
+func certPrefix(id string) string {
+	account, name := splitCertID(id)
+	return "accounts/" + account + "/certs/" + name + "/"
 }
 
-func versionsPrefix(name string) string {
-	return "certs/" + name + "/versions/"
+func metaKey(id string) string {
+	return certPrefix(id) + "meta"
+}
+
+func versionsPrefix(id string) string {
+	return certPrefix(id) + "versions/"
 }
 
 func versionKey(name string, n int) string {
@@ -136,16 +143,31 @@ func listVersions(ctx context.Context, s logical.Storage, name string) ([]int, e
 	return versions, nil
 }
 
-func listNames(ctx context.Context, s logical.Storage) ([]string, error) {
-	keys, err := s.List(ctx, "certs/")
-	if err != nil {
-		return nil, err
+// listCertIDs lists the certificates of account, or of every account when
+// account is empty, as ids.
+func listCertIDs(ctx context.Context, s logical.Storage, account string) ([]string, error) {
+	accounts := []string{account}
+	if account == "" {
+		keys, err := s.List(ctx, "accounts/")
+		if err != nil {
+			return nil, err
+		}
+		accounts = accounts[:0]
+		for _, k := range keys {
+			accounts = append(accounts, strings.TrimSuffix(k, "/"))
+		}
 	}
-	names := make([]string, 0, len(keys))
-	for _, k := range keys {
-		names = append(names, strings.TrimSuffix(k, "/"))
+	var ids []string
+	for _, a := range accounts {
+		keys, err := s.List(ctx, "accounts/"+a+"/certs/")
+		if err != nil {
+			return nil, err
+		}
+		for _, k := range keys {
+			ids = append(ids, certID(a, strings.TrimSuffix(k, "/")))
+		}
 	}
-	return names, nil
+	return ids, nil
 }
 
 // prune deletes versions beyond the newest max, but never the current one.

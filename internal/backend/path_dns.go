@@ -28,13 +28,17 @@ type dnsEntry struct {
 	CreatedTime               time.Time         `json:"created_time"`
 }
 
-func dnsKey(name string) string {
-	return "config/dns/" + name
+func dnsPrefix(account string) string {
+	return "accounts/" + account + "/dns/"
 }
 
-func loadDNS(ctx context.Context, s logical.Storage, name string) (*dnsEntry, error) {
+func dnsKey(account, name string) string {
+	return dnsPrefix(account) + name
+}
+
+func loadDNS(ctx context.Context, s logical.Storage, account, name string) (*dnsEntry, error) {
 	var e dnsEntry
-	ok, err := getJSON(ctx, s, dnsKey(name), &e)
+	ok, err := getJSON(ctx, s, dnsKey(account, name), &e)
 	if err != nil || !ok {
 		return nil, err
 	}
@@ -159,44 +163,33 @@ func toAny(s []string) []any {
 }
 
 func (b *backend) dnsExists(ctx context.Context, req *logical.Request, d *framework.FieldData) (bool, error) {
-	e, _, err := ownedDNS(ctx, req.Storage, d.Get("account").(string), d.Get("name").(string))
+	e, err := loadDNS(ctx, req.Storage, d.Get("account").(string), d.Get("name").(string))
 	return e != nil, err
 }
 
 func (b *backend) handleDNSList(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	account := d.Get("account").(string)
-	names, err := req.Storage.List(ctx, "config/dns/")
+	names, err := req.Storage.List(ctx, dnsPrefix(d.Get("account").(string)))
 	if err != nil {
 		return nil, err
 	}
-	owned := []string{}
-	for _, name := range names {
-		e, _, err := ownedDNS(ctx, req.Storage, account, name)
-		if err != nil {
-			return nil, err
-		}
-		if e != nil {
-			owned = append(owned, name)
-		}
-	}
-	return logical.ListResponse(owned), nil
+	return logical.ListResponse(names), nil
 }
 
 func (b *backend) handleDNSRead(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
 	account, name := d.Get("account").(string), d.Get("name").(string)
-	l := b.lock(dnsLockName(name))
+	l := b.lock(dnsLockName(account, name))
 	l.RLock()
 	defer l.RUnlock()
 
-	e, _, err := ownedDNS(ctx, req.Storage, account, name)
+	e, err := loadDNS(ctx, req.Storage, account, name)
 	if err != nil || e == nil {
 		return nil, err
 	}
 	return &logical.Response{Data: dnsData(e)}, nil
 }
 
-func dnsLockName(name string) string {
-	return "dns/" + name
+func dnsLockName(account, name string) string {
+	return "dns/" + account + "/" + name
 }
 
 func dnsData(e *dnsEntry) map[string]any {
@@ -225,16 +218,13 @@ func dnsData(e *dnsEntry) map[string]any {
 
 func (b *backend) handleDNSWrite(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
 	account, name := d.Get("account").(string), d.Get("name").(string)
-	l := b.lock(dnsLockName(name))
+	l := b.lock(dnsLockName(account, name))
 	l.Lock()
 	defer l.Unlock()
 
-	e, foreign, err := ownedDNS(ctx, req.Storage, account, name)
+	e, err := loadDNS(ctx, req.Storage, account, name)
 	if err != nil {
 		return nil, err
-	}
-	if foreign {
-		return foreignName("DNS provider", name), logical.ErrInvalidRequest
 	}
 	creating := e == nil
 	if creating {
@@ -287,7 +277,7 @@ func (b *backend) handleDNSWrite(ctx context.Context, req *logical.Request, d *f
 		return logical.ErrorResponse(err.Error()), logical.ErrInvalidRequest
 	}
 	e.Settings = settings
-	if err := putJSON(ctx, req.Storage, dnsKey(name), e); err != nil {
+	if err := putJSON(ctx, req.Storage, dnsKey(account, name), e); err != nil {
 		return nil, err
 	}
 
@@ -302,19 +292,19 @@ func (b *backend) handleDNSWrite(ctx context.Context, req *logical.Request, d *f
 
 func (b *backend) handleDNSDelete(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
 	account, name := d.Get("account").(string), d.Get("name").(string)
-	l := b.lock(dnsLockName(name))
+	l := b.lock(dnsLockName(account, name))
 	l.Lock()
 	defer l.Unlock()
 
-	if e, _, err := ownedDNS(ctx, req.Storage, account, name); err != nil || e == nil {
+	if e, err := loadDNS(ctx, req.Storage, account, name); err != nil || e == nil {
 		return nil, err
 	}
-	users, err := dnsInUse(ctx, req.Storage, name)
+	users, err := dnsInUse(ctx, req.Storage, account, name)
 	if err != nil {
 		return nil, err
 	}
 	if len(users) > 0 {
 		return logical.ErrorResponse("DNS provider %q is in use by %s", name, strings.Join(users, ", ")), logical.ErrInvalidRequest
 	}
-	return nil, req.Storage.Delete(ctx, dnsKey(name))
+	return nil, req.Storage.Delete(ctx, dnsKey(account, name))
 }
