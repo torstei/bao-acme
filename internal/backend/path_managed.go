@@ -34,7 +34,7 @@ func (b *backend) define(ctx context.Context, s logical.Storage, account, name s
 	l.Lock()
 	defer l.Unlock()
 
-	m, resp, err := newMeta(ctx, s, account, name)
+	m, resp, err := newMeta(ctx, s, account, name, b.now().UTC())
 	if err != nil {
 		return nil, false, err
 	}

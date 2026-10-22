@@ -152,7 +152,10 @@ func startOpenBao(t *testing.T) *cluster {
 	}); err != nil {
 		t.Fatalf("registering plugin: %v", err)
 	}
-	if err := client.Sys().MountWithContext(ctx, mount, &api.MountInput{Type: pluginName}); err != nil {
+	if err := client.Sys().MountWithContext(ctx, mount, &api.MountInput{
+		Type:   pluginName,
+		Config: api.MountConfigInput{AuditNonHMACResponseKeys: []string{"id"}},
+	}); err != nil {
 		t.Fatalf("mounting plugin: %v", err)
 	}
 	return &cluster{t: t, client: client, logs: logs}
@@ -466,6 +469,15 @@ func TestIntegration(t *testing.T) {
 		}
 		if strings.Contains(logs, "dns-s3cret") {
 			t.Error("audit log contains a DNS credential in clear text")
+		}
+
+		id := fmt.Sprint(read(t, c.client, "config/accounts/team-a").Data["id"])
+		deadline := time.Now().Add(5 * time.Second)
+		for !strings.Contains(c.logs.String(), `"id":"`+id+`"`) {
+			if time.Now().After(deadline) {
+				t.Fatalf("audit log does not show the account id %s in clear, with audit_non_hmac_response_keys=id", id)
+			}
+			time.Sleep(100 * time.Millisecond)
 		}
 	})
 }

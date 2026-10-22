@@ -140,6 +140,7 @@ func (b *backend) handleCertStatus(ctx context.Context, req *logical.Request, d 
 // summary is what both status paths say about a certificate.
 func summary(m *certMeta, current *certVersion, running *job, now time.Time) map[string]any {
 	data := map[string]any{
+		"id":       m.ID,
 		"account":  m.Account,
 		"state":    certState(m, current, running, now),
 		"managed":  m.Managed != nil,
