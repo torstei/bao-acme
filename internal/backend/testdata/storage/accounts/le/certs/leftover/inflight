@@ -3,7 +3,7 @@
   "defined_time": "2026-10-18T15:57:06.329295865Z",
   "reason": "renewal is due, in the CA's suggested window",
   "account": "le",
-  "dns_provider": "bind",
+  "dns": "bind",
   "published": [
     {
       "domain": "leftover.example.test",

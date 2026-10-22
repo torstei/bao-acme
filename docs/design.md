@@ -447,15 +447,14 @@ both on upgrade and when restoring an old Raft snapshot (§5.4.4).
 
 5.4.1. Keys, relative to the mount. Everything an account owns is stored under it, as the paths
 are, so names are unique per account by construction. Inside the engine, a certificate is
-identified as `<account>/<name>`; account names cannot contain a slash. Some stored field names
-predate the API's, and keep them:
+identified as `<account>/<name>`; account names cannot contain a slash.
 
 | Key | Holds |
 |---|---|
-| `accounts/<account>/certs/<name>/meta` | The `account`, which version is current, the latest version number, `max_versions`, and for a managed certificate its `managed` definition (with `dns_provider`: the API's `dns`) and `issuance` state (including `failing_since`). |
+| `accounts/<account>/certs/<name>/meta` | The `account`, which version is current, the latest version number, `max_versions`, and for a managed certificate its `managed` definition and `issuance` state (including `failing_since`). |
 | `accounts/<account>/certs/<name>/versions/<n>` | One version: certificate, chain, key and description, in one entry. |
 | `accounts/<account>/certs/<name>/inflight` | While an attempt runs, or after it was interrupted: the attempt's private key, its definition, the order URL, and the challenge records not yet removed (§6.2). |
-| `accounts/<account>/dns/<name>` | A DNS provider: its `account`, `provider` (the API's `type`), a `settings` object with its fields, credentials included, and the common timing settings. |
+| `accounts/<account>/dns/<name>` | A DNS provider: its `account`, `type`, a `settings` object with its fields, credentials included, and the common timing settings. |
 | `config/accounts/<name>` | An ACME account: its settings, its key (PKCS #8 PEM), and, once registered, a `registration` object with the account URL, status, contact, the address last sent to the CA (`contact_sent`) and terms of service URL. |
 | `config/network` | The proxy URL, credentials included, `proxy_ca_bundle`, and the DNS settings of §7.1.7. Absent means direct connections and the defaults. |
 
@@ -506,8 +505,7 @@ older release did.
 
 5.4.4.2. Renaming or moving a field or key needs a migration: either converting entries when they
 are read, or a one-off upgrade at mount time (`InitializeFunc`) that records a storage version.
-Renaming an API field does not rename the stored one, which is why `dns_provider` and `provider`
-remain in storage.
+From 1.0, renaming an API field therefore does not rename the stored one.
 
 5.4.4.3. Downgrading loses data. An older release that rewrites an entry, for example on
 `destroy`, drops the fields it does not know. Release notes must say so for the first release that
@@ -866,7 +864,8 @@ provider before removal, and only the exact value removed (§6.2.5); a CA that k
 the v0.4.0 paths named the account but the storage keys did not; a migration was avoided then, and
 the result was confusing. v0.5.0 changes the layout without a migration (§5.4.4.4): DNS providers
 and certificates stored by earlier releases are ignored, with a warning at start, and are created
-again. Account settings keep their keys.
+again. Account settings keep their keys. The stored fields `dns_provider` and `provider` took the
+API's names, `dns` and `type`.
 
 ## References
 

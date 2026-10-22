@@ -3,7 +3,7 @@
   "defined_time": "2026-10-18T15:57:03.15231022Z",
   "reason": "no certificate yet",
   "account": "le",
-  "dns_provider": "bind",
+  "dns": "bind",
   "privkey": "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgIFu8YIdwf53AruC8\nqhMC2OUBA6FRA+oOqV71hnbTYfyhRANCAASobgzzgXiFB7xQCQDN5gLo5XnRB+tG\nTcxBHSQj1E/FphU3syZWrhJK6I4jfir7gzscniIcX0DbYzusKvvL5nL6\n-----END PRIVATE KEY-----\n",
   "order_url": "https://127.0.0.1:34593/my-order/O6o7A62cx-3cYjksMRBqfGIjHvzG5rLqKQlzHia8KCk",
   "published": [

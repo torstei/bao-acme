@@ -34,7 +34,7 @@ type inflightEntry struct {
 	DefinedTime time.Time `json:"defined_time"`
 	Reason      string    `json:"reason"`
 	Account     string    `json:"account"`
-	DNS         string    `json:"dns_provider"`
+	DNS         string    `json:"dns"`
 	// Privkey is the key the order's certificate is for; empty once only
 	// clean-up remains.
 	Privkey  string `json:"privkey,omitempty"`

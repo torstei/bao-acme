@@ -1,6 +1,6 @@
 {
   "account": "example",
-  "provider": "domeneshop",
+  "type": "domeneshop",
   "settings": {
     "api_secret": "sec-456",
     "api_token": "tok-123"

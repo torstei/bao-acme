@@ -41,7 +41,7 @@ type managedSpec struct {
 	Names   []string `json:"names"`
 	KeyType string   `json:"key_type"`
 	Account string   `json:"account"`
-	DNS     string   `json:"dns_provider"`
+	DNS     string   `json:"dns"`
 	// ReuseKey renews with the current version's key, so its public key
 	// stays the same for consumers that pin it.
 	ReuseKey    bool      `json:"reuse_key,omitempty"`

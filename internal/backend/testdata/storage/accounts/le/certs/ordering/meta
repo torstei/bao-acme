@@ -10,7 +10,7 @@
     ],
     "key_type": "ecdsa-p256",
     "account": "le",
-    "dns_provider": "bind",
+    "dns": "bind",
     "defined_time": "2026-10-18T15:57:03.15231022Z"
   }
 }

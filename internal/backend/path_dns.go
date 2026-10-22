@@ -20,7 +20,7 @@ import (
 type dnsEntry struct {
 	// Account owns the provider; only its certificates may use it.
 	Account                   string            `json:"account,omitempty"`
-	Type                      string            `json:"provider"`
+	Type                      string            `json:"type"`
 	Settings                  map[string]string `json:"settings"`
 	TTL                       int               `json:"ttl,omitempty"`
 	PropagationTimeoutSeconds int               `json:"propagation_timeout_seconds,omitempty"`
