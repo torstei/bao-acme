@@ -37,8 +37,9 @@ OpenBao dev server at $BAO_ADDR, root token "root", plugin mounted at $mount/.
 Server log: $log
 
   export BAO_ADDR=$BAO_ADDR BAO_TOKEN=root
-  bao write $mount/certs/example.com/import fullchain=@fullchain.pem privkey=@privkey.pem
-  bao read  $mount/certs/example.com/info
+  bao write -f $mount/config/accounts/demo
+  bao write $mount/accounts/demo/certs/web-certname/import fullchain=@fullchain.pem privkey=@privkey.pem
+  bao read  $mount/accounts/demo/certs/web-certname/info
 
 EOF
 wait "$server"

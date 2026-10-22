@@ -10,27 +10,59 @@ Everything is done with an **account**: an ACME account, and the unit of authori
 policy on `accounts/<account>/*` is its whole access. See [docs/design.md](docs/design.md) for
 the design.
 
-> Status: early, and not yet used in production.
+> Status: early. In production use since v0.4.0, with Let's Encrypt and Domeneshop.
 
-## Build and try it
+## A first certificate
 
-You need Go 1.27 or later and the `bao` CLI.
-
-```sh
-make test
-make integration  # needs Docker: runs the plugin in OpenBao (quay.io/openbao/openbao, override with BAO_IMAGE)
-make dev          # builds, starts a throwaway OpenBao dev server on 127.0.0.1:18200
-```
-
-In another terminal:
+Example Company manages the `example.com` zone at Domeneshop, and wants a certificate for
+`branch.example.com`. With the engine mounted at `certificates/`:
 
 ```sh
-export BAO_ADDR=http://127.0.0.1:18200 BAO_TOKEN=root
-bao write -f certificates/config/accounts/demo             # an account, for now just holding imports
-bao write certificates/accounts/demo/certs/example.com/import fullchain=@fullchain.pem privkey=@privkey.pem
-bao read  certificates/accounts/demo/certs/example.com/info   # description, no key
-bao read  certificates/accounts/demo/certs/example.com        # certificate and key
+# Once, by the operator: an account at Let's Encrypt
+bao write certificates/config/accounts/example-company-account directory_url=letsencrypt terms_of_service_agreed=true
+
+# Once: the account's DNS provider, a name of your choosing and its type
+bao write certificates/accounts/example-company-account/dns/example-domeneshop type=domeneshop api_token=… api_secret=…
+
+# The certificate: a name of your choosing, the DNS names it covers, and how they are validated
+bao write certificates/accounts/example-company-account/certs/branch-web-certname names=branch.example.com dns=example-domeneshop
+
+# It is obtained in the background; follow it with
+bao read -format=yaml certificates/accounts/example-company-account/certs/branch-web-certname/status
 ```
+
+The certificate's name (`branch-web-certname`) is only a label, used in paths and policies; the
+DNS names it covers are in `names`. Naming certificates after their first domain, as certbot does,
+works too. The engine renews the certificate by itself, and keeps the last three versions.
+
+After the account is registered (at its first certificate, or with `bao write -f
+certificates/config/accounts/example-company-account/register`), publish the CAA records that
+`bao read -field=caa_records certificates/config/accounts/example-company-account` lists, on each
+zone's apex. Until certbot is retired, also publish an `issue` record with its account URL, or
+certbot is refused.
+
+## Using a certificate
+
+```sh
+bao read -field=fullchain certificates/accounts/example-company-account/certs/branch-web-certname > fullchain.pem
+bao read -field=privkey   certificates/accounts/example-company-account/certs/branch-web-certname > privkey.pem
+bao read certificates/accounts/example-company-account/certs/branch-web-certname/info   # description, no key
+```
+
+Or with an OpenBao Agent template, which writes the file again when the certificate is renewed:
+
+```
+{{ with secret "certificates/accounts/example-company-account/certs/branch-web-certname" }}{{ .Data.fullchain }}{{ end }}
+```
+
+To store a certificate something else obtained, import it; with an account that has no
+`directory_url`, the engine only stores, and never orders anything:
+
+```sh
+bao write certificates/accounts/example-company-account/certs/legacy-certname/import fullchain=@fullchain.pem privkey=@privkey.pem
+```
+
+Moving from certbot and a KV mount is described in [design §8](docs/design.md).
 
 ## Installing in a real OpenBao
 
@@ -64,6 +96,9 @@ plugin "secret" "bao-acme" {
 }
 ```
 
+OpenBao reads `plugin_directory` only when it starts. If it was not set before, the first install
+needs a restart of each node, and so an unseal. Later upgrades need only `SIGHUP`.
+
 `sha256sum` guards against mistakes, not attackers. With it, OpenBao refuses a binary other than
 the one you verified: a wrong version, the wrong architecture, a half-copied file. Without it,
 OpenBao registers the plugin with no checksum and runs whatever file is at that path. It does
@@ -86,7 +121,9 @@ bao secrets tune -plugin-version=v0.5.0 certificates
 bao plugin reload -plugin=bao-acme
 ```
 
-Remove the old block and binary once the mount runs the new version.
+Remove the old block and binary once the mount runs the new version. Every release reads what
+earlier releases stored (see [design §5.6](docs/design.md)); the release notes say when the API
+changed.
 
 ### Registering it through the API
 
@@ -101,29 +138,24 @@ bao secrets enable -path=certificates -plugin-version=$v bao-acme
 Upgrades then register the new version the same way, followed by the same `secrets tune` and
 `plugin reload`.
 
-Either way, name each binary after its version: replacing the binary of an unversioned
-registration in place made the mount's requests fail with `checksums did not match`. Every release
-reads what earlier releases stored (see [design §5.6](docs/design.md)).
+Either way, name each binary after its version. Replacing the binary of a registration in place
+makes the mount's requests fail with `checksums did not match`.
 
-Or build it yourself with `make build`, which writes `bin/bao-acme`.
-
-## Releasing
-
-Push an annotated tag `vX.Y.Z` on a commit that has passed CI on `main`. The release workflow
-refuses a commit without passing `checks` and `integration` runs. The tag's annotation leads the
-release notes. Releases from v0.1.1 on are immutable: once published, neither the binaries nor the
-tag can change, so a fix is always a new version.
+To build it yourself, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## API
 
 Paths are relative to the mount. An account's **settings** are under `config/accounts/<account>`;
-everything **done with** the account is under `accounts/<account>/`. Certificate and DNS provider
-names are unique per mount: writing a name another account owns is refused.
+everything **done with** the account is under `accounts/<account>/`. Account, certificate and DNS
+provider names are labels of your choosing. Certificate and DNS provider names are unique per
+mount: writing a name another account owns is refused.
 
 A write that takes no fields, such as `register`, `renew` or `unmanage`, needs `bao write -f`;
 without it, `bao` stops with "Must supply data or use -force".
 
-A field that does not apply, such as an unset time or an empty error, is left out of a read.
+A field that does not apply, such as an unset time or an empty error, is left out of a read. Read
+the nested ones, such as `status`, with `bao read -format=yaml …`: the default table prints nested
+values on one line.
 
 ### Accounts (the operator)
 
@@ -135,15 +167,11 @@ A field that does not apply, such as an unset time or an empty error, is left ou
 | `config/accounts/<account>/register` | write | Register with the CA, or update the contact and refresh the status. Also done at the first issuance. |
 | `config/accounts/` | list | Names. |
 
-After registering, publish the CAA records that `bao read -field=caa_records
-certificates/config/accounts/<account>` lists, on each zone's apex. Until certbot is retired, also
-publish an `issue` record with its account URL, or certbot is refused.
-
 ### DNS providers
 
 | Path | Method | |
 |---|---|---|
-| `accounts/<account>/dns/<name>` | write | `type` (`domeneshop`, `cloudflare` or `dnsupdate` for RFC 2136), then that provider's settings; credentials are write-only. `bao path-help certificates/accounts/x/dns/y` lists them. Only this account's certificates can use it. |
+| `accounts/<account>/dns/<name>` | write | `type` (`domeneshop`, `cloudflare` or `dnsupdate` for RFC 2136), then that type's settings; credentials are write-only. `bao path-help certificates/accounts/x/dns/y` lists them. `<name>` is how certificates refer to it, in `dns`. Only this account's certificates can use it. |
 | `accounts/<account>/dns/<name>` | read | Settings, `<secret>_set` flags, and `egress`: where the provider connects. |
 | `accounts/<account>/dns/<name>` | delete | Refused while a certificate uses it, or still needs it to remove leftover challenge records. |
 | `accounts/<account>/dns/` | list | Names. |
@@ -152,7 +180,7 @@ publish an `issue` record with its account URL, or certbot is refused.
 
 | Path | Method | |
 |---|---|---|
-| `accounts/<account>/certs/<name>` | write | A managed certificate: `names`, `dns` (one of this account's DNS providers), optionally `key_type` (default `ecdsa-p256`) and `reuse_key` (renew with the same key, for consumers that pin it). Returns at once; the certificate is obtained in the background. An imported certificate under the same name keeps its versions. |
+| `accounts/<account>/certs/<name>` | write | A managed certificate: `names` (the DNS names it covers; wildcards allowed), `dns` (the name of one of this account's DNS providers), optionally `key_type` (default `ecdsa-p256`) and `reuse_key` (renew with the same key, for consumers that pin it). Returns at once; the certificate is obtained in the background. An imported certificate under the same name keeps its versions. |
 | `accounts/<account>/certs/<name>` | read | Current version: `fullchain`, `certificate`, `chain`, `privkey` and the description. |
 | `accounts/<account>/certs/<name>` | delete | The certificate and all its versions. |
 | `…/certs/<name>/import` | write | `fullchain`, `privkey` (PEM), optional `max_versions` (default 3). An import identical to the current version writes nothing (`written: false`). |
@@ -163,11 +191,15 @@ publish an `issue` record with its account URL, or certbot is refused.
 | `…/certs/<name>/destroy` | write | `versions`, or `spki_sha256` for every version holding that key: destroy the private keys, keep the descriptions. |
 | `…/certs/<name>/renew` | write | Renew now, ignoring the schedule and any backoff. `rotate_key=true` takes a new key this once. |
 | `…/certs/<name>/unmanage` | write | Back to import-only, keeping the versions. |
-| `accounts/<account>/certs/` | list | Names. With `?covers=<host>`, only those whose names cover the host. |
+| `accounts/<account>/certs/` | list | Names. With `covers=<host>`, only those whose names cover the host; the `bao` CLI cannot pass it, see below. |
 | `accounts/<account>/status` | read | The account's certificates, each with its state and expiry, and for a failing one `failing_since` and `last_error`, and any `leftovers`: challenge records not yet removed. Also `counts` per state, and the account's registration state under `accounts`. |
 | `status` | read | The same for every account, in one read. |
 
-Read `status` with `bao read -format=yaml …`: the default table prints nested values on one line.
+`bao list` takes no parameters, so ask for `covers` through the HTTP API:
+
+```sh
+curl -H "X-Vault-Token: $BAO_TOKEN" -X LIST "$BAO_ADDR/v1/certificates/accounts/example-company-account/certs/?covers=branch.example.com"
+```
 
 Renewal follows the CA's suggested window (ARI, RFC 9773) where offered, which also picks up a
 CA's request to renew early, and otherwise happens when a third of the lifetime remains.
@@ -177,18 +209,6 @@ certificate the CA had already issued, instead of ordering a new one, and remove
 records the attempt left. It removes only a record with exactly the value it published, and
 leaves other records at the same name alone. A record it cannot remove is shown in `status` and
 tried again.
-
-### A complete setup with Domeneshop
-
-```sh
-bao write certificates/config/accounts/team-a directory_url=letsencrypt email=ops@example.com terms_of_service_agreed=true
-bao write -f certificates/config/accounts/team-a/register   # optional: done at the first issuance
-bao read -field=caa_records certificates/config/accounts/team-a
-bao write certificates/accounts/team-a/dns/team-a-domeneshop type=domeneshop api_token=… api_secret=…
-bao write certificates/accounts/team-a/certs/team-a-www names=example.com,*.example.com dns=team-a-domeneshop
-bao read  certificates/accounts/team-a/certs/team-a-www/status
-bao write -f certificates/accounts/team-a/certs/team-a-www/renew   # later, to renew ahead of schedule
-```
 
 ### Outgoing traffic
 
@@ -216,7 +236,7 @@ path "certificates/accounts/team-a/certs/*" { capabilities = ["create", "read", 
 path "certificates/accounts/team-a/status"  { capabilities = ["read"] }
 
 # a consumer: one certificate, key included
-path "certificates/accounts/team-a/certs/team-a-www" { capabilities = ["read"] }
+path "certificates/accounts/team-a/certs/web-certname" { capabilities = ["read"] }
 
 # monitoring: every certificate's state, no keys
 path "certificates/status" { capabilities = ["read"] }
