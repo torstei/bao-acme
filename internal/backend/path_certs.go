@@ -269,7 +269,7 @@ func (b *backend) handleRead(ctx context.Context, req *logical.Request, d *frame
 	if err != nil || m == nil {
 		return nil, err
 	}
-	return b.versionResponse(ctx, req.Storage, name, m.CurrentVersion)
+	return b.versionResponse(ctx, req.Storage, m, name, m.CurrentVersion)
 }
 
 func (b *backend) handleReadVersion(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
@@ -279,13 +279,14 @@ func (b *backend) handleReadVersion(ctx context.Context, req *logical.Request, d
 	l.RLock()
 	defer l.RUnlock()
 
-	if m, err := loadMeta(ctx, req.Storage, name); err != nil || m == nil {
+	m, err := loadMeta(ctx, req.Storage, name)
+	if err != nil || m == nil {
 		return nil, err
 	}
-	return b.versionResponse(ctx, req.Storage, name, n)
+	return b.versionResponse(ctx, req.Storage, m, name, n)
 }
 
-func (b *backend) versionResponse(ctx context.Context, s logical.Storage, name string, n int) (*logical.Response, error) {
+func (b *backend) versionResponse(ctx context.Context, s logical.Storage, m *certMeta, name string, n int) (*logical.Response, error) {
 	v, err := loadVersion(ctx, s, name, n)
 	if err != nil || v == nil {
 		return nil, err
@@ -294,6 +295,7 @@ func (b *backend) versionResponse(ctx context.Context, s logical.Storage, name s
 		return logical.ErrorResponse("the private key of version %d was destroyed at %s", n, v.DestroyedTime.Format(time.RFC3339)), nil
 	}
 	data := versionData(v)
+	data["id"] = m.ID
 	data["fullchain"] = v.Certificate + v.Chain
 	data["certificate"] = v.Certificate
 	data["chain"] = v.Chain
@@ -350,7 +352,9 @@ func (b *backend) infoResponse(ctx context.Context, s logical.Storage, name stri
 		data = versionData(current)
 		data["destroyed"] = current.destroyed()
 	}
+	data["id"] = m.ID
 	data["account"] = m.Account
+	data["certificate_created_time"] = m.CreatedTime
 	data["current_version"] = m.CurrentVersion
 	data["latest_version"] = m.LatestVersion
 	data["max_versions"] = m.MaxVersions
@@ -409,6 +413,7 @@ func versionData(v *certVersion) map[string]any {
 		"version":      v.Version,
 		"created_time": v.CreatedTime,
 		"source":       v.Source,
+		"account_id":   v.AccountID,
 		"names":        d.Names,
 		"common_name":  d.CommonName,
 		"not_before":   d.NotBefore,
@@ -450,7 +455,7 @@ func (b *backend) handleImport(ctx context.Context, req *logical.Request, d *fra
 	l.Lock()
 	defer l.Unlock()
 
-	m, resp, err := newMeta(ctx, req.Storage, account, name)
+	m, resp, err := newMeta(ctx, req.Storage, account, name, b.now().UTC())
 	if resp != nil || err != nil {
 		return resp, err
 	}

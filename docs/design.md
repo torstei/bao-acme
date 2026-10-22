@@ -121,6 +121,14 @@ them: a certificate's DNS names are in its `names`, never taken from its name.
 change or even detect the other's. A DNS key that two accounts both need is entered twice, once in
 each: duplication, but it makes explicit who can use which credentials.
 
+4.1.5.1. **IDs.** A name can be used again after a delete, and paths, policies and the audit log
+record names. So accounts, DNS providers and certificates also have an `id`: a random UUID made at
+creation, never changed and never reused, returned by reads, `info` and `status`. It tells a
+re-created `test` from the one deleted earlier, in a user's own records and in the audit log.
+References between objects stay by name: a DNS provider in use and an account that owns anything
+cannot be deleted, so a name cannot be swapped out from under a reference. Accounts stored before
+IDs existed get one when the mount starts, on the active node.
+
 4.1.6. "Write-only" fields are accepted on write and never returned: reads show only whether they
 are set. A field that does not apply, such as an unset time or an empty error, is left out of every
 response rather than shown empty, because `bao` prints a zero time as year 1.
@@ -317,10 +325,11 @@ a client can poll it and read the key only when `current_version` or `sha256` ch
 | `sha256`, `spki_sha256` | fingerprints of the certificate and of its public key. |
 | `key_type` | e.g. `ecdsa-p256`. |
 
-`info` also returns `current_version`, `latest_version`, `max_versions`, `destroyed`, and
-`versions`, which maps each kept version to its `created_time`, `sha256`, `not_after` and
-`destroyed`; the version's `source` (`acme:<account>` or `import`, with `imported_by`: the token's
-`entity_id` and `display_name`); and for a managed certificate `definition` and `issuance`:
+`info` also returns the certificate's `id` and `certificate_created_time`, `current_version`,
+`latest_version`, `max_versions`, `destroyed`, and `versions`, which maps each kept version to its
+`created_time`, `sha256`, `not_after` and `destroyed`; the current version's `created_time`,
+`source` (`acme:<account>` or `import`, with `imported_by`: the token's `entity_id` and
+`display_name`) and `account_id`, the ID of the account that obtained or imported it; and for a managed certificate `definition` and `issuance`:
 `needed` (why an issuance is due), `last_attempt_time`, `last_success_time`, `last_error`,
 `failures`, `failing_since`, `next_attempt_time`, `renew_requested`, and `renewal` for the current
 version (`renew_at`, `source` (`ari` or `default`), `window_start`, `window_end`,
@@ -335,7 +344,7 @@ certificate is being obtained), `pending` (no certificate yet, nothing running),
 `expired`. When several apply, the first of `expired`, `renewing`, `failing`, `renewal_due` wins.
 A renewal that is running after earlier failures is therefore `renewing`.
 
-4.7.1.2. `expires_in` in seconds, `not_after`, `version`, `renew_at`, `failures`.
+4.7.1.2. `id`, `account`, `expires_in` in seconds, `not_after`, `version`, `renew_at`, `failures`.
 
 4.7.1.3. `running`, and while a job runs on this node, `running_since` and `running_reason`. A
 job that only checks the renewal schedule does not count as `renewing`.
@@ -451,11 +460,11 @@ identified as `<account>/<name>`; account names cannot contain a slash.
 
 | Key | Holds |
 |---|---|
-| `accounts/<account>/certs/<name>/meta` | The `account`, which version is current, the latest version number, `max_versions`, and for a managed certificate its `managed` definition and `issuance` state (including `failing_since`). |
-| `accounts/<account>/certs/<name>/versions/<n>` | One version: certificate, chain, key and description, in one entry. |
+| `accounts/<account>/certs/<name>/meta` | The certificate's `id`, its `account` and `created_time`, which version is current, the latest version number, `max_versions`, and for a managed certificate its `managed` definition and `issuance` state (including `failing_since`). |
+| `accounts/<account>/certs/<name>/versions/<n>` | One version: certificate, chain, key and description, and the `account_id` that obtained or imported it, in one entry. |
 | `accounts/<account>/certs/<name>/inflight` | While an attempt runs, or after it was interrupted: the attempt's private key, its definition, the order URL, and the challenge records not yet removed (§6.2). |
-| `accounts/<account>/dns/<name>` | A DNS provider: its `account`, `type`, a `settings` object with its fields, credentials included, and the common timing settings. |
-| `config/accounts/<name>` | An ACME account: its settings, its key (PKCS #8 PEM), and, once registered, a `registration` object with the account URL, status, contact, the address last sent to the CA (`contact_sent`) and terms of service URL. |
+| `accounts/<account>/dns/<name>` | A DNS provider: its `id`, `account`, `type`, a `settings` object with its fields, credentials included, and the common timing settings. |
+| `config/accounts/<name>` | An ACME account: its `id`, its settings, its key (PKCS #8 PEM), and, once registered, a `registration` object with the account URL, status, contact, the address last sent to the CA (`contact_sent`) and terms of service URL. |
 | `config/network` | The proxy URL, credentials included, `proxy_ca_bundle`, and the DNS settings of §7.1.7. Absent means direct connections and the defaults. |
 
 5.4.2. A `meta` entry, and a `versions/<n>` entry (about 2 KB for ECDSA P-256), with the PEM
@@ -751,7 +760,9 @@ retired. With `dns-persist-01` (#20), `validationmethods` would have to name tha
 and `reuse_key` keeps a key across renewals when a consumer pins it.
 
 7.5. **Audit.** OpenBao's audit log HMACs response fields by default, so certificates and keys do
-not appear in clear text there. The audit log records API requests only: a renewal by the engine's
+not appear in clear text there. OpenBao cannot tell which fields are secret, so it HMACs IDs too;
+the mount's `audit_non_hmac_response_keys=id`, recommended in the README, shows them in clear. An
+ID is not a secret, and nothing else should be listed there. The audit log records API requests only: a renewal by the engine's
 own background job is not in it, but in OpenBao's server log, and in `info` and `status`.
 
 ## 8. Moving from certbot and a KV mount
@@ -866,6 +877,9 @@ the result was confusing. v0.5.0 changes the layout without a migration (§5.4.4
 and certificates stored by earlier releases are ignored, with a warning at start, and are created
 again. Account settings keep their keys. The stored fields `dns_provider` and `provider` took the
 API's names, `dns` and `type`.
+
+11.5.4. IDs (§4.1.5.1): accounts, DNS providers and certificates got an `id`, certificates a
+`certificate_created_time`, and each version the `account_id` that made it.
 
 ## References
 

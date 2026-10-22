@@ -21,11 +21,13 @@ const defaultMaxVersions = 3
 // certMeta is the per-certificate entry. It is written after the version it
 // points to, so it never references a version that is not fully stored.
 type certMeta struct {
-	// Account owns the certificate; see owner for entries without one.
-	Account        string `json:"account,omitempty"`
-	CurrentVersion int    `json:"current_version"`
-	LatestVersion  int    `json:"latest_version"`
-	MaxVersions    int    `json:"max_versions"`
+	// ID tells this certificate apart from an earlier one of the same name.
+	ID             string    `json:"id"`
+	Account        string    `json:"account"`
+	CreatedTime    time.Time `json:"created_time"`
+	CurrentVersion int       `json:"current_version"`
+	LatestVersion  int       `json:"latest_version"`
+	MaxVersions    int       `json:"max_versions"`
 
 	// Managed is set for a certificate the engine obtains itself.
 	Managed  *managedSpec   `json:"managed,omitempty"`
@@ -42,9 +44,11 @@ type identity struct {
 // certVersion holds everything about one version in a single storage entry,
 // so writing a version is one atomic Put.
 type certVersion struct {
-	Version     int              `json:"version"`
-	CreatedTime time.Time        `json:"created_time"`
-	Source      string           `json:"source"`
+	Version     int       `json:"version"`
+	CreatedTime time.Time `json:"created_time"`
+	Source      string    `json:"source"`
+	// AccountID is the account that obtained or imported this version.
+	AccountID   string           `json:"account_id"`
 	ImportedBy  *identity        `json:"imported_by,omitempty"`
 	Description cert.Description `json:"description"`
 
@@ -212,10 +216,19 @@ func deleteCert(ctx context.Context, s logical.Storage, name string) error {
 // writeVersion stores bundle as the next version and makes it current. The
 // caller holds the certificate's lock and passes its meta, which is updated.
 func writeVersion(ctx context.Context, s logical.Storage, name string, m *certMeta, bundle *cert.Bundle, source string, by *identity, now time.Time) (*certVersion, error) {
+	account, _ := splitCertID(name)
+	a, err := loadAccount(ctx, s, account)
+	if err != nil {
+		return nil, err
+	}
+	if a == nil {
+		return nil, fmt.Errorf("no account named %q", account)
+	}
 	v := &certVersion{
 		Version:     m.LatestVersion + 1,
 		CreatedTime: now,
 		Source:      source,
+		AccountID:   a.ID,
 		ImportedBy:  by,
 		Description: bundle.Describe(),
 		Certificate: bundle.CertPEM,

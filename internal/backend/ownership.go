@@ -5,6 +5,9 @@ package backend
 import (
 	"context"
 	"strings"
+	"time"
+
+	"github.com/hashicorp/go-uuid"
 
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/logical"
@@ -53,7 +56,7 @@ func pathCertID(d *framework.FieldData) (account, id string) {
 
 // newMeta returns the meta for a certificate about to be written: the
 // stored one, or a new one if the account exists.
-func newMeta(ctx context.Context, s logical.Storage, account, id string) (*certMeta, *logical.Response, error) {
+func newMeta(ctx context.Context, s logical.Storage, account, id string, now time.Time) (*certMeta, *logical.Response, error) {
 	m, err := loadMeta(ctx, s, id)
 	if err != nil || m != nil {
 		return m, nil, err
@@ -61,7 +64,11 @@ func newMeta(ctx context.Context, s logical.Storage, account, id string) (*certM
 	if resp, err := requireAccount(ctx, s, account); resp != nil || err != nil {
 		return nil, resp, err
 	}
-	return &certMeta{Account: account, MaxVersions: defaultMaxVersions}, nil, nil
+	uid, err := uuid.GenerateUUID()
+	if err != nil {
+		return nil, nil, err
+	}
+	return &certMeta{ID: uid, Account: account, CreatedTime: now, MaxVersions: defaultMaxVersions}, nil, nil
 }
 
 func requireAccount(ctx context.Context, s logical.Storage, account string) (*logical.Response, error) {

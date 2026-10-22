@@ -5,6 +5,7 @@ go 1.27.0
 require (
 	github.com/go-acme/lego/v5 v5.5.2
 	github.com/hashicorp/go-hclog v1.6.3
+	github.com/hashicorp/go-uuid v1.0.3
 	github.com/letsencrypt/pebble/v2 v2.10.1
 	github.com/miekg/dns v1.1.73
 	github.com/openbao/openbao/api/v2 v2.7.0
@@ -46,7 +47,6 @@ require (
 	github.com/hashicorp/go-secure-stdlib/parseutil v0.2.0 // indirect
 	github.com/hashicorp/go-secure-stdlib/strutil v0.1.2 // indirect
 	github.com/hashicorp/go-sockaddr v1.0.7 // indirect
-	github.com/hashicorp/go-uuid v1.0.3 // indirect
 	github.com/hashicorp/go-version v1.9.0 // indirect
 	github.com/hashicorp/golang-lru v0.5.4 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect

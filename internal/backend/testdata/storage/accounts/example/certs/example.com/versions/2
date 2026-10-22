@@ -2,6 +2,7 @@
   "version": 2,
   "created_time": "2026-10-18T13:20:10.642959751Z",
   "source": "import",
+  "account_id": "6d3eaeea-adaa-5bf0-875f-f132d78d0c4a",
   "imported_by": {
     "entity_id": "entity-1",
     "display_name": "approle-importer"
@@ -24,4 +25,3 @@
   "chain": "-----BEGIN CERTIFICATE-----\nMIIBnTCCAUSgAwIBAgIIY8i3kUJNfe8wCgYIKoZIzj0EAwIwJjEQMA4GA1UEChMH\nVGVzdCBDQTESMBAGA1UEAxMJVGVzdCBSb290MB4XDTI2MTAxNzEzMjAxMFoXDTMx\nMTAxNzEzMjAxMFowHzEQMA4GA1UEChMHVGVzdCBDQTELMAkGA1UEAxMCVDEwWTAT\nBgcqhkjOPQIBBggqhkjOPQMBBwNCAAQgilt/7UfH6wSxBRSmgZq5mXYxVG9hnPNi\nzVKo4MrL+7V1396LN4btgix9sJbkpLdk0oLcZzcg1jrHtRU9Eqndo2MwYTAOBgNV\nHQ8BAf8EBAMCAgQwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQU6h8uOdvPyp1u\noYzdbz9TRVOjLhswHwYDVR0jBBgwFoAUsbXawQ7Rrm23GFLJ0OF96dBt+38wCgYI\nKoZIzj0EAwIDRwAwRAIgdTWS+EXbnBS2Ns7IGiidGCFlHNIiEQ7dmDGKk1rthH8C\nIE5DbIDAwcQhtb7NGC8abf+UhlLWKn5TauS7j0cszLiL\n-----END CERTIFICATE-----\n",
   "privkey": "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgXwhJtGQBB1TEtf8S\nNE1w+ORgKn0HhaFfY/Z+uvhOxkyhRANCAASG5BNvNL4CPwXedDPLflyKGIPIv8bI\nRPgbnfQeluWGt8u+zCsXxX73S3xTDVSMZbffj3MkhN9yBUEKNJcyajcG\n-----END PRIVATE KEY-----\n"
 }
-

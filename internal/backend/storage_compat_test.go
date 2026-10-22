@@ -81,6 +81,11 @@ func TestReadsStorage(t *testing.T) {
 	if resp, _ := h.do(logical.ReadOperation, "certs/example.com", nil); resp != nil {
 		t.Errorf("another account reached example's certificate: %v", resp.Data)
 	}
+	h.account = "example"
+	info := h.ok(logical.ReadOperation, "certs/example.com/info", nil).Data
+	if info["id"] != readFixture(t, "accounts/example/certs/example.com/meta")["id"] || info["account_id"] != stored["account_id"] {
+		t.Errorf("info id %v, account_id %v", info["id"], info["account_id"])
+	}
 	certs := h.ok(logical.ReadOperation, "status", nil).Data["certificates"].(map[string]any)
 	if s, ok := certs["example/example.com"].(map[string]any); !ok || s["account"] != "example" {
 		t.Errorf("mount status = %v", certs)

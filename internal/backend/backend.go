@@ -90,8 +90,13 @@ func (b *backend) Setup(ctx context.Context, conf *logical.BackendConfig) error 
 }
 
 // initialize warns about data in the layout used before v0.5.0, which is
-// no longer read.
+// no longer read, and gives accounts stored before v0.5.0 an id.
 func (b *backend) initialize(ctx context.Context, req *logical.InitializationRequest) error {
+	if !b.standby() {
+		if err := b.assignAccountIDs(ctx, req.Storage); err != nil {
+			return err
+		}
+	}
 	for _, prefix := range []string{"certs/", "config/dns/"} {
 		keys, err := req.Storage.List(ctx, prefix)
 		if err != nil {

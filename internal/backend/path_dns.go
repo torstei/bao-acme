@@ -10,16 +10,19 @@ import (
 	"time"
 
 	"github.com/go-acme/lego/v5/challenge"
+	"github.com/hashicorp/go-uuid"
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/logical"
 
 	"github.com/torstei/bao-acme/internal/dnsprovider"
 )
 
-// dnsEntry is stored at config/dns/<name>.
+// dnsEntry is stored at accounts/<account>/dns/<name>.
 type dnsEntry struct {
+	// ID tells this provider apart from an earlier one of the same name.
+	ID string `json:"id"`
 	// Account owns the provider; only its certificates may use it.
-	Account                   string            `json:"account,omitempty"`
+	Account                   string            `json:"account"`
 	Type                      string            `json:"type"`
 	Settings                  map[string]string `json:"settings"`
 	TTL                       int               `json:"ttl,omitempty"`
@@ -194,6 +197,7 @@ func dnsLockName(account, name string) string {
 
 func dnsData(e *dnsEntry) map[string]any {
 	data := map[string]any{
+		"id":                  e.ID,
 		"account":             e.Account,
 		"type":                e.Type,
 		"ttl":                 e.TTL,
@@ -231,7 +235,11 @@ func (b *backend) handleDNSWrite(ctx context.Context, req *logical.Request, d *f
 		if resp, err := requireAccount(ctx, req.Storage, account); resp != nil || err != nil {
 			return resp, err
 		}
-		e = &dnsEntry{Account: account, Settings: map[string]string{}, CreatedTime: b.now().UTC()}
+		uid, err := uuid.GenerateUUID()
+		if err != nil {
+			return nil, err
+		}
+		e = &dnsEntry{ID: uid, Account: account, Settings: map[string]string{}, CreatedTime: b.now().UTC()}
 	}
 
 	if raw, ok := d.GetOk("type"); ok {

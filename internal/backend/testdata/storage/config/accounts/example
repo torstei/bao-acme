@@ -1,4 +1,5 @@
 {
+  "id": "6d3eaeea-adaa-5bf0-875f-f132d78d0c4a",
   "directory_url": "https://127.0.0.1:36631/dir",
   "email": "ops@example.com",
   "key_type": "ecdsa-p256",
@@ -22,4 +23,3 @@
     "checked_time": "2026-10-18T15:21:35.547665089Z"
   }
 }
-

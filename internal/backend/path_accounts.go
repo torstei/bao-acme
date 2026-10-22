@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hashicorp/go-uuid"
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/logical"
 
@@ -24,6 +25,8 @@ const (
 
 // accountEntry is stored at config/accounts/<name>.
 type accountEntry struct {
+	// ID tells this account apart from an earlier one of the same name.
+	ID                   string    `json:"id"`
 	DirectoryURL         string    `json:"directory_url"`
 	Email                string    `json:"email,omitempty"`
 	KeyType              string    `json:"key_type"`
@@ -219,8 +222,38 @@ func (b *backend) handleAccountRead(ctx context.Context, req *logical.Request, d
 	return &logical.Response{Data: accountData(a)}, nil
 }
 
+// assignAccountIDs gives an id to each account stored without one. The
+// account then keeps it, so it is set once, on the active node.
+func (b *backend) assignAccountIDs(ctx context.Context, s logical.Storage) error {
+	names, err := s.List(ctx, "config/accounts/")
+	if err != nil {
+		return err
+	}
+	for _, name := range names {
+		if err := b.assignAccountID(ctx, s, name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (b *backend) assignAccountID(ctx context.Context, s logical.Storage, name string) error {
+	l := b.lock(accountLockName(name))
+	l.Lock()
+	defer l.Unlock()
+	a, err := loadAccount(ctx, s, name)
+	if err != nil || a == nil || a.ID != "" {
+		return err
+	}
+	if a.ID, err = uuid.GenerateUUID(); err != nil {
+		return err
+	}
+	return putJSON(ctx, s, accountKey(name), a)
+}
+
 func accountData(a *accountEntry) map[string]any {
 	data := map[string]any{
+		"id":                      a.ID,
 		"directory_url":           a.DirectoryURL,
 		"email":                   a.Email,
 		"key_type":                a.KeyType,
@@ -260,7 +293,11 @@ func (b *backend) handleAccountWrite(ctx context.Context, req *logical.Request, 
 	}
 	creating := a == nil
 	if creating {
-		a = &accountEntry{KeyType: defaultAccountKeyType, CreatedTime: b.now().UTC()}
+		uid, err := uuid.GenerateUUID()
+		if err != nil {
+			return nil, err
+		}
+		a = &accountEntry{ID: uid, KeyType: defaultAccountKeyType, CreatedTime: b.now().UTC()}
 	}
 	registered := a.Registration != nil
 

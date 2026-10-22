@@ -128,8 +128,13 @@ verify each release when you install it.
 Then, once:
 
 ```sh
-bao secrets enable -path=certificates -plugin-version=v0.4.0 bao-acme
+bao secrets enable -path=certificates -plugin-version=v0.4.0 -audit-non-hmac-response-keys=id bao-acme
 ```
+
+`-audit-non-hmac-response-keys=id` lets the audit log show IDs (see [API](#api)) in clear. OpenBao
+HMACs every value of a response in the audit log, because it cannot tell which are secret; an ID
+is not. For a mount enabled without it: `bao secrets tune -audit-non-hmac-response-keys=id
+certificates`.
 
 To upgrade, install the new binary next to the old one, and add a second `plugin` block for the
 new version. Blocks with the same name and different versions may sit side by side. Send OpenBao
@@ -151,7 +156,7 @@ Without access to the server configuration, register each version through the AP
 ```sh
 bao plugin register -sha256="$(sha256sum bao-acme_linux_amd64 | cut -d' ' -f1)" \
     -command=bao-acme-$v -version=$v secret bao-acme
-bao secrets enable -path=certificates -plugin-version=$v bao-acme
+bao secrets enable -path=certificates -plugin-version=$v -audit-non-hmac-response-keys=id bao-acme
 ```
 
 Upgrades then register the new version the same way, followed by the same `secrets tune` and
@@ -168,6 +173,11 @@ Paths are relative to the mount. An account's **settings** are under `config/acc
 everything **done with** the account is under `accounts/<account>/`. Account, certificate and DNS
 provider names are labels of your choosing. Certificate and DNS provider names belong to their
 account: two accounts can each have a certificate called `web-certname`.
+
+Accounts, DNS providers and certificates also have an `id`, a UUID made when they are created and
+never reused. A name can be used again after a delete; the `id` tells the new one from the old,
+in your records and in the audit log. Each version of a certificate records the `account_id` of
+the account that obtained or imported it.
 
 A write that takes no fields, such as `register`, `renew` or `unmanage`, needs `bao write -f`;
 without it, `bao` stops with "Must supply data or use -force".
