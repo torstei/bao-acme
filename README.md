@@ -141,7 +141,7 @@ bao plugin reload -plugin=bao-acme
 ```
 
 Remove the old block and binary once the mount runs the new version. Every release reads what
-earlier releases stored (see [design §5.6](docs/design.md)); the release notes say when the API
+earlier releases stored (see [design §5.4](docs/design.md)); the release notes say when the API
 changed.
 
 ### Registering it through the API

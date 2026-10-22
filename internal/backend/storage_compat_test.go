@@ -23,7 +23,7 @@ import (
 )
 
 // testdata/storage-v1 holds entries exactly as storage format 1 (design
-// §5.6) writes them, one file per storage key. A file is frozen once a
+// §5.4) writes them, one file per storage key. A file is frozen once a
 // release has shipped it: never regenerate it. A format change adds a new
 // directory beside this one.
 const storageV1 = "testdata/storage-v1"
@@ -79,7 +79,7 @@ func TestReadsStorageV1(t *testing.T) {
 	}
 
 	// An imported certificate from format 1 has no owner: no account
-	// reaches it, and the mount's status still counts it (design §5.7.3).
+	// reaches it, and the mount's status still counts it (design §5.4.3).
 	if m.owner() != "" {
 		t.Errorf("owner = %q", m.owner())
 	}
