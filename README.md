@@ -49,11 +49,30 @@ bao read -field=privkey   certificates/accounts/example-company-account/certs/br
 bao read certificates/accounts/example-company-account/certs/branch-web-certname/info   # description, no key
 ```
 
-Or with an OpenBao Agent template, which writes the file again when the certificate is renewed:
+On a server that uses the certificate, [OpenBao Agent](https://openbao.org/docs/agent-and-proxy/agent/)
+(`bao agent`) can do this continuously. The agent is part of OpenBao, not of this engine: it logs
+in by itself, for example with AppRole, and writes secrets to files from templates. When the engine
+renews the certificate, the agent writes the files again and runs a command:
 
+```hcl
+template {
+  contents    = "{{ with secret \"certificates/accounts/example-company-account/certs/branch-web-certname\" }}{{ .Data.fullchain }}{{ end }}"
+  destination = "/etc/nginx/tls/fullchain.pem"
+  command     = "systemctl reload nginx"
+}
+
+template {
+  contents    = "{{ with secret \"certificates/accounts/example-company-account/certs/branch-web-certname\" }}{{ .Data.privkey }}{{ end }}"
+  destination = "/etc/nginx/tls/privkey.pem"
+  perms       = "0600"
+  command     = "systemctl reload nginx"
+}
 ```
-{{ with secret "certificates/accounts/example-company-account/certs/branch-web-certname" }}{{ .Data.fullchain }}{{ end }}
-```
+
+The agent's policy needs only `read` on that one certificate (see [Policies](#policies)). For a
+service that reads the files as systemd credentials (`LoadCredential=`), use `systemctl restart`
+instead: systemd copies credentials when the service starts, so a reload does not pick up a renewed
+certificate.
 
 To store a certificate something else obtained, import it; with an account that has no
 `directory_url`, the engine only stores, and never orders anything:
