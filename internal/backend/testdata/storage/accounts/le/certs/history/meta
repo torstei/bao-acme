@@ -1,4 +1,5 @@
 {
+  "account": "le",
   "current_version": 1,
   "latest_version": 1,
   "max_versions": 3,
@@ -8,7 +9,7 @@
     ],
     "key_type": "ecdsa-p256",
     "account": "le",
-    "dns_provider": "bind",
+    "dns": "bind",
     "defined_time": "2026-10-18T15:39:53.670843051Z"
   },
   "issuance": {
@@ -21,7 +22,7 @@
     "attempts": [
       {
         "start_time": "2026-10-18T15:39:54.778194734Z",
-        "duration_seconds": 0.000092415,
+        "duration_seconds": 9.2415e-05,
         "reason": "a renewal was requested",
         "outcome": "failed",
         "error": "no DNS provider named \"bind\""
@@ -45,4 +46,3 @@
     "next_check_time": "2026-10-18T21:39:54.752793023Z"
   }
 }
-

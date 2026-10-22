@@ -1,6 +1,6 @@
 {
   "account": "team-a",
-  "provider": "domeneshop",
+  "type": "domeneshop",
   "settings": {
     "api_secret": "sec",
     "api_token": "tok"

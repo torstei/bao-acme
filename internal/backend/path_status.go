@@ -77,9 +77,9 @@ func pathStatus(b *backend) *framework.Path {
 }
 
 func (b *backend) handleCertStatus(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	account, name := d.Get("account").(string), d.Get("name").(string)
+	_, name := pathCertID(d)
 	m, current, err := b.loadCurrent(ctx, req.Storage, name)
-	if err != nil || m == nil || m.owner() != account {
+	if err != nil || m == nil {
 		return nil, err
 	}
 	now := b.now()
@@ -140,7 +140,7 @@ func (b *backend) handleCertStatus(ctx context.Context, req *logical.Request, d 
 // summary is what both status paths say about a certificate.
 func summary(m *certMeta, current *certVersion, running *job, now time.Time) map[string]any {
 	data := map[string]any{
-		"account":  m.owner(),
+		"account":  m.Account,
 		"state":    certState(m, current, running, now),
 		"managed":  m.Managed != nil,
 		"running":  running != nil,
@@ -186,7 +186,7 @@ func (b *backend) handleStatus(ctx context.Context, req *logical.Request, d *fra
 	if raw, ok := d.Raw["account"]; ok {
 		account, scoped = raw.(string), true
 	}
-	names, err := listNames(ctx, req.Storage)
+	ids, err := listCertIDs(ctx, req.Storage, account)
 	if err != nil {
 		return nil, err
 	}
@@ -196,12 +196,12 @@ func (b *backend) handleStatus(ctx context.Context, req *logical.Request, d *fra
 		counts[s] = 0
 	}
 	certs := map[string]any{}
-	for _, name := range names {
+	for _, name := range ids {
 		m, current, err := b.loadCurrent(ctx, req.Storage, name)
 		if err != nil {
 			return nil, err
 		}
-		if m == nil || scoped && m.owner() != account {
+		if m == nil {
 			continue
 		}
 		running := b.issuer.job(name)
@@ -213,7 +213,11 @@ func (b *backend) handleStatus(ctx context.Context, req *logical.Request, d *fra
 		if leftovers := leftoverData(inflight, running != nil); len(leftovers) > 0 {
 			s["leftovers"] = leftovers
 		}
-		certs[name] = s
+		key := name
+		if scoped {
+			_, key = splitCertID(name)
+		}
+		certs[key] = s
 		counts[s["state"].(string)]++
 	}
 	accounts, err := accountsStatus(ctx, req.Storage, account, scoped)

@@ -1,4 +1,5 @@
 {
+  "account": "le",
   "current_version": 0,
   "latest_version": 0,
   "max_versions": 3,
@@ -8,7 +9,7 @@
     ],
     "key_type": "ecdsa-p256",
     "account": "le",
-    "dns_provider": "bind",
+    "dns": "bind",
     "defined_time": "2026-10-18T15:12:34.657529519Z"
   },
   "issuance": {
@@ -19,4 +20,3 @@
     "renew_requested": true
   }
 }
-

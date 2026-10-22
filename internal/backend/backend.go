@@ -53,7 +53,7 @@ func New() *backend {
 		Help:        strings.TrimSpace(backendHelp),
 		BackendType: logical.TypeLogical,
 		PathsSpecial: &logical.Paths{
-			SealWrapStorage: []string{"certs/", "config/"},
+			SealWrapStorage: []string{"accounts/", "config/"},
 		},
 		Paths: []*framework.Path{
 			pathCertsList(b),
@@ -77,6 +77,7 @@ func New() *backend {
 		},
 		RunningVersion: Version,
 		PeriodicFunc:   b.periodic,
+		InitializeFunc: b.initialize,
 		Clean:          func(context.Context) { b.issuer.stop() },
 	}
 	return b
@@ -86,6 +87,21 @@ func New() *backend {
 func (b *backend) Setup(ctx context.Context, conf *logical.BackendConfig) error {
 	b.storage = conf.StorageView
 	return b.Backend.Setup(ctx, conf)
+}
+
+// initialize warns about data in the layout used before v0.5.0, which is
+// no longer read.
+func (b *backend) initialize(ctx context.Context, req *logical.InitializationRequest) error {
+	for _, prefix := range []string{"certs/", "config/dns/"} {
+		keys, err := req.Storage.List(ctx, prefix)
+		if err != nil {
+			return err
+		}
+		if len(keys) > 0 {
+			b.Logger().Warn("found entries stored before v0.5.0, which are no longer read; create the DNS providers and certificates again under accounts/<account>/", "prefix", prefix, "entries", len(keys))
+		}
+	}
+	return nil
 }
 
 func (b *backend) now() time.Time {

@@ -34,7 +34,7 @@ type inflightEntry struct {
 	DefinedTime time.Time `json:"defined_time"`
 	Reason      string    `json:"reason"`
 	Account     string    `json:"account"`
-	DNS         string    `json:"dns_provider"`
+	DNS         string    `json:"dns"`
 	// Privkey is the key the order's certificate is for; empty once only
 	// clean-up remains.
 	Privkey  string `json:"privkey,omitempty"`
@@ -55,8 +55,8 @@ type publishedRecord struct {
 	CleanupError string `json:"cleanup_error,omitempty"`
 }
 
-func inflightKey(name string) string {
-	return "certs/" + name + "/inflight"
+func inflightKey(id string) string {
+	return certPrefix(id) + "inflight"
 }
 
 func loadInflight(ctx context.Context, s logical.Storage, name string) (*inflightEntry, error) {
@@ -238,7 +238,7 @@ func (b *backend) cleanupLeftovers(ctx context.Context, s logical.Storage, name 
 }
 
 func leftoverRemover(ctx context.Context, s logical.Storage, e *inflightEntry) (func(context.Context, publishedRecord) (bool, error), error) {
-	dnsEntry, _, err := ownedDNS(ctx, s, e.Account, e.DNS)
+	dnsEntry, err := loadDNS(ctx, s, e.Account, e.DNS)
 	if err != nil {
 		return nil, err
 	}

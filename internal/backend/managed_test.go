@@ -69,7 +69,7 @@ func (e *managedEnv) waitFor(name string, what string, cond func(*certMeta) bool
 	e.t.Helper()
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		m, err := loadMeta(context.Background(), e.storage, name)
+		m, err := loadMeta(context.Background(), e.storage, e.id(name))
 		if err != nil {
 			e.t.Fatal(err)
 		}
@@ -78,7 +78,7 @@ func (e *managedEnv) waitFor(name string, what string, cond func(*certMeta) bool
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	m, _ := loadMeta(context.Background(), e.storage, name)
+	m, _ := loadMeta(context.Background(), e.storage, e.id(name))
 	e.t.Fatalf("%s: timed out waiting for %s; meta = %+v, issuance = %+v", name, what, m, m.Issuance)
 	return nil
 }
@@ -157,7 +157,7 @@ func TestMatchingImportNeedsNoIssuance(t *testing.T) {
 		t.Fatal(err)
 	}
 	time.Sleep(200 * time.Millisecond)
-	if m, _ := loadMeta(context.Background(), e.storage, "site"); m.CurrentVersion != 1 || m.Issuance != nil {
+	if m, _ := loadMeta(context.Background(), e.storage, e.id("site")); m.CurrentVersion != 1 || m.Issuance != nil {
 		t.Errorf("meta = %+v", m)
 	}
 }
@@ -176,7 +176,7 @@ func TestIssuanceFailureBacksOff(t *testing.T) {
 		t.Fatal(err)
 	}
 	time.Sleep(200 * time.Millisecond)
-	if m, _ := loadMeta(context.Background(), e.storage, "www"); m.Issuance.Failures != 1 {
+	if m, _ := loadMeta(context.Background(), e.storage, e.id("www")); m.Issuance.Failures != 1 {
 		t.Errorf("retried before the backoff ended: %+v", m.Issuance)
 	}
 
@@ -191,7 +191,7 @@ func TestIssuanceFailureBacksOff(t *testing.T) {
 
 func TestPeriodicResumesAfterRestart(t *testing.T) {
 	e := newManagedEnv(t)
-	if err := putJSON(context.Background(), e.storage, metaKey("www"), &certMeta{
+	if err := putJSON(context.Background(), e.storage, metaKey(e.id("www")), &certMeta{
 		MaxVersions: defaultMaxVersions,
 		Managed: &managedSpec{
 			Names: []string{"www.example.test"}, KeyType: "ecdsa-p256", Account: "le", DNS: "bind",
@@ -260,7 +260,7 @@ func TestUnmanage(t *testing.T) {
 	e.define("never", "never.example.test")
 	e.waitFor("never", "a failure", func(m *certMeta) bool { return m.Issuance != nil && m.Issuance.Failures > 0 })
 	e.ok(logical.UpdateOperation, "certs/never/unmanage", nil)
-	if m, _ := loadMeta(context.Background(), e.storage, "never"); m != nil {
+	if m, _ := loadMeta(context.Background(), e.storage, e.id("never")); m != nil {
 		t.Errorf("an unmanaged certificate without versions was kept: %+v", m)
 	}
 }

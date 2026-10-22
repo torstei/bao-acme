@@ -41,7 +41,7 @@ type managedSpec struct {
 	Names   []string `json:"names"`
 	KeyType string   `json:"key_type"`
 	Account string   `json:"account"`
-	DNS     string   `json:"dns_provider"`
+	DNS     string   `json:"dns"`
 	// ReuseKey renews with the current version's key, so its public key
 	// stays the same for consumers that pin it.
 	ReuseKey    bool      `json:"reuse_key,omitempty"`
@@ -428,7 +428,7 @@ func (b *backend) periodic(ctx context.Context, req *logical.Request) error {
 	if b.standby() {
 		return nil
 	}
-	names, err := listNames(ctx, req.Storage)
+	names, err := listCertIDs(ctx, req.Storage, "")
 	if err != nil {
 		return err
 	}
@@ -594,7 +594,7 @@ func (b *backend) obtain(ctx context.Context, s logical.Storage, name string, cl
 	if err != nil {
 		return nil, err
 	}
-	dnsEntry, _, err := ownedDNS(ctx, s, spec.Account, spec.DNS)
+	dnsEntry, err := loadDNS(ctx, s, spec.Account, spec.DNS)
 	if err != nil {
 		return nil, err
 	}

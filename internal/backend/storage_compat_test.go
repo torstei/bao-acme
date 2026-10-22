@@ -22,11 +22,11 @@ import (
 	"github.com/torstei/bao-acme/internal/testcerts"
 )
 
-// testdata/storage-v1 holds entries exactly as storage format 1 (design
-// §5.4) writes them, one file per storage key. A file is frozen once a
-// release has shipped it: never regenerate it. A format change adds a new
-// directory beside this one.
-const storageV1 = "testdata/storage-v1"
+// testdata/storage holds entries exactly as the engine stores them (design
+// §5.4), one file per storage key. Until 1.0 a release may change the
+// layout and these files with it; from 1.0 they are frozen, and a format
+// change adds a new directory beside this one.
+const storageDir = "testdata/storage"
 
 func loadFixture(t *testing.T, h *harness, dir string) {
 	t.Helper()
@@ -48,7 +48,7 @@ func loadFixture(t *testing.T, h *harness, dir string) {
 
 func readFixture(t *testing.T, key string) map[string]any {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(storageV1, key))
+	b, err := os.ReadFile(filepath.Join(storageDir, key))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,52 +59,47 @@ func readFixture(t *testing.T, key string) map[string]any {
 	return m
 }
 
-func TestReadsStorageV1(t *testing.T) {
+func TestReadsStorage(t *testing.T) {
 	h := newHarness(t)
-	loadFixture(t, h, storageV1)
+	loadFixture(t, h, storageDir)
 	ctx := context.Background()
-	stored := readFixture(t, "certs/example.com/versions/2")
+	stored := readFixture(t, "accounts/example/certs/example.com/versions/2")
+	id := certID("example", "example.com")
 
-	m, err := loadMeta(ctx, h.storage, "example.com")
+	m, err := loadMeta(ctx, h.storage, id)
 	if err != nil || m == nil || m.CurrentVersion != 2 || m.MaxVersions != 3 {
 		t.Fatalf("meta = %+v, %v", m, err)
 	}
-	v2, err := loadVersion(ctx, h.storage, "example.com", 2)
+	v2, err := loadVersion(ctx, h.storage, id, 2)
 	if err != nil || v2.Certificate != stored["certificate"] || v2.Privkey != stored["privkey"] ||
 		v2.Description.SHA256 != stored["description"].(map[string]any)["sha256"] {
 		t.Errorf("version 2 = %+v, %v", v2, err)
 	}
-	if v1, err := loadVersion(ctx, h.storage, "example.com", 1); err != nil || !v1.destroyed() {
+	if v1, err := loadVersion(ctx, h.storage, id, 1); err != nil || !v1.destroyed() {
 		t.Errorf("version 1 = %+v, %v", v1, err)
 	}
-
-	// An imported certificate from format 1 has no owner: no account
-	// reaches it, and the mount's status still counts it (design §5.4.3).
-	if m.owner() != "" {
-		t.Errorf("owner = %q", m.owner())
-	}
 	if resp, _ := h.do(logical.ReadOperation, "certs/example.com", nil); resp != nil {
-		t.Errorf("an account reached an unowned certificate: %v", resp.Data)
+		t.Errorf("another account reached example's certificate: %v", resp.Data)
 	}
 	certs := h.ok(logical.ReadOperation, "status", nil).Data["certificates"].(map[string]any)
-	if s, ok := certs["example.com"].(map[string]any); !ok || s["account"] != nil {
-		t.Errorf("mount status = %v", certs["example.com"])
+	if s, ok := certs["example/example.com"].(map[string]any); !ok || s["account"] != "example" {
+		t.Errorf("mount status = %v", certs)
 	}
 
 	h.account = "le"
 	read := h.ok(logical.ReadOperation, "certs/managed", nil)
-	managed := readFixture(t, "certs/managed/versions/1")
+	managed := readFixture(t, "accounts/le/certs/managed/versions/1")
 	if read.Data["fullchain"] != managed["certificate"].(string)+managed["chain"].(string) || read.Data["privkey"] != managed["privkey"] {
-		t.Errorf("read of a format 1 managed certificate = %v", read.Data)
+		t.Errorf("read of a stored managed certificate = %v", read.Data)
 	}
 	if got := h.ok(logical.ListOperation, "certs/", map[string]any{"covers": "managed.example.test"}).Data["keys"]; len(got.([]string)) != 1 {
 		t.Errorf("covers = %v", got)
 	}
 }
 
-func TestReadsStorageV1Account(t *testing.T) {
+func TestReadsStorageAccount(t *testing.T) {
 	h := newHarness(t)
-	loadFixture(t, h, storageV1)
+	loadFixture(t, h, storageDir)
 	stored := readFixture(t, "config/accounts/example")
 	reg := stored["registration"].(map[string]any)
 
@@ -133,7 +128,7 @@ func TestReadsStorageV1Account(t *testing.T) {
 	}
 }
 
-func TestWritesStorageV1AccountFields(t *testing.T) {
+func TestWritesStorageAccountFields(t *testing.T) {
 	h := newHarness(t)
 	p := acmetest.Start(t, acmetest.Options{EABKeys: map[string]string{testEABKeyID: testEABHMAC}})
 	h.ok(logical.CreateOperation, "config/accounts/example", map[string]any{
@@ -157,9 +152,9 @@ func TestWritesStorageV1AccountFields(t *testing.T) {
 	missingFields(t, "config/accounts/example", readFixture(t, "config/accounts/example"), got)
 }
 
-func TestReadsStorageV1Network(t *testing.T) {
+func TestReadsStorageNetwork(t *testing.T) {
 	h := newHarness(t)
-	loadFixture(t, h, storageV1)
+	loadFixture(t, h, storageDir)
 
 	n := h.ok(logical.ReadOperation, "config/network", nil)
 	if n.Data["proxy_url"] != "https://proxy.example:8443" || n.Data["proxy_credentials_set"] != true {
@@ -178,7 +173,7 @@ func TestReadsStorageV1Network(t *testing.T) {
 	}
 }
 
-func TestWritesStorageV1NetworkFields(t *testing.T) {
+func TestWritesStorageNetworkFields(t *testing.T) {
 	h := newHarness(t)
 	proxy := acmetest.StartProxy(t, acmetest.ProxyOptions{TLS: true})
 	h.ok(logical.UpdateOperation, "config/network", map[string]any{
@@ -200,11 +195,11 @@ func TestWritesStorageV1NetworkFields(t *testing.T) {
 	missingFields(t, "config/network", readFixture(t, "config/network"), got)
 }
 
-func TestReadsStorageV1DNS(t *testing.T) {
+func TestReadsStorageDNS(t *testing.T) {
 	h := newHarness(t)
-	loadFixture(t, h, storageV1)
+	loadFixture(t, h, storageDir)
 
-	e, err := loadDNS(context.Background(), h.storage, "example")
+	e, err := loadDNS(context.Background(), h.storage, "example", "example")
 	if err != nil || e == nil {
 		t.Fatalf("entry = %+v, %v", e, err)
 	}
@@ -217,22 +212,18 @@ func TestReadsStorageV1DNS(t *testing.T) {
 		t.Errorf("stored provider does not build: %v", err)
 	}
 
-	// A DNS provider from format 1 has no owner, so no account reaches it.
-	if e.Account != "" {
-		t.Errorf("account = %q", e.Account)
-	}
 	if resp, _ := h.do(logical.ReadOperation, "config/dns/example", nil); resp != nil {
-		t.Errorf("an account reached an unowned DNS provider: %v", resp.Data)
+		t.Errorf("another account reached example's DNS provider: %v", resp.Data)
 	}
 }
 
-func TestWritesStorageV1DNSFields(t *testing.T) {
+func TestWritesStorageDNSFields(t *testing.T) {
 	h := newHarness(t)
 	h.ok(logical.CreateOperation, "config/dns/example", map[string]any{
 		"type": "domeneshop", "api_token": "tok-123", "api_secret": "sec-456",
 		"ttl": 300, "propagation_timeout": "10m", "polling_interval": "30s",
 	})
-	entry, err := h.storage.Get(context.Background(), "config/dns/example")
+	entry, err := h.storage.Get(context.Background(), dnsKey(h.account, "example"))
 	if err != nil || entry == nil {
 		t.Fatal(err)
 	}
@@ -240,12 +231,12 @@ func TestWritesStorageV1DNSFields(t *testing.T) {
 	if err := json.Unmarshal(entry.Value, &got); err != nil {
 		t.Fatal(err)
 	}
-	missingFields(t, "config/dns/example", readFixture(t, "config/dns/example"), got)
+	missingFields(t, "dns/example", readFixture(t, "accounts/example/dns/example"), got)
 }
 
-func TestReadsStorageV1Managed(t *testing.T) {
+func TestReadsStorageManaged(t *testing.T) {
 	h := newHarness(t)
-	loadFixture(t, h, storageV1)
+	loadFixture(t, h, storageDir)
 	h.account = "le"
 
 	info := h.ok(logical.ReadOperation, "certs/managed/info", nil)
@@ -270,7 +261,7 @@ func TestReadsStorageV1Managed(t *testing.T) {
 
 func freshMeta(t *testing.T, e *managedEnv, name string) map[string]any {
 	t.Helper()
-	entry, err := e.storage.Get(context.Background(), metaKey(name))
+	entry, err := e.storage.Get(context.Background(), metaKey(e.id(name)))
 	if err != nil || entry == nil {
 		t.Fatal(err)
 	}
@@ -281,23 +272,23 @@ func freshMeta(t *testing.T, e *managedEnv, name string) map[string]any {
 	return got
 }
 
-func TestWritesStorageV1ManagedFields(t *testing.T) {
+func TestWritesStorageManagedFields(t *testing.T) {
 	e := newManagedEnv(t)
 	e.define("managed", "managed.example.test")
 	e.waitFor("managed", "the certificate and its schedule", func(m *certMeta) bool { return m.CurrentVersion == 1 && m.Renewal != nil })
-	missingFields(t, "certs/managed/meta", readFixture(t, "certs/managed/meta"), freshMeta(t, e, "managed"))
+	missingFields(t, "certs/managed/meta", readFixture(t, "accounts/le/certs/managed/meta"), freshMeta(t, e, "managed"))
 
 	e.ok(logical.UpdateOperation, "config/dns/bind", map[string]any{"tsig_secret": "d3Jvbmd3cm9uZ3dyb25nd3Jvbmd3cm9uZw=="})
 	e.define("failing", "failing.example.test")
 	e.waitFor("failing", "a failure", func(m *certMeta) bool { return m.Issuance != nil && m.Issuance.Failures == 1 })
 	e.ok(logical.UpdateOperation, "certs/failing/renew", nil)
 	e.waitFor("failing", "a second failure", func(m *certMeta) bool { return m.Issuance.Failures == 2 })
-	missingFields(t, "certs/failing/meta", readFixture(t, "certs/failing/meta"), freshMeta(t, e, "failing"))
+	missingFields(t, "certs/failing/meta", readFixture(t, "accounts/le/certs/failing/meta"), freshMeta(t, e, "failing"))
 }
 
-func TestReadsStorageV1AttemptHistory(t *testing.T) {
+func TestReadsStorageAttemptHistory(t *testing.T) {
 	h := newHarness(t)
-	loadFixture(t, h, storageV1)
+	loadFixture(t, h, storageDir)
 	h.account = "le"
 
 	s := h.ok(logical.ReadOperation, "certs/history/status", nil)
@@ -311,7 +302,7 @@ func TestReadsStorageV1AttemptHistory(t *testing.T) {
 	}
 }
 
-func TestWritesStorageV1AttemptHistoryFields(t *testing.T) {
+func TestWritesStorageAttemptHistoryFields(t *testing.T) {
 	e := newManagedEnv(t)
 	e.define("history", "history.example.test")
 	e.waitFor("history", "the certificate and its schedule", func(m *certMeta) bool { return m.CurrentVersion == 1 && m.Renewal != nil })
@@ -321,20 +312,20 @@ func TestWritesStorageV1AttemptHistoryFields(t *testing.T) {
 	e.waitFor("history", "a failed renewal", func(m *certMeta) bool { return m.Issuance.Failures == 1 })
 
 	got := freshMeta(t, e, "history")
-	want := readFixture(t, "certs/history/meta")
+	want := readFixture(t, "accounts/le/certs/history/meta")
 	missingFields(t, "certs/history/meta", want, got)
 	for i, a := range want["issuance"].(map[string]any)["attempts"].([]any) {
 		missingFields(t, fmt.Sprintf("certs/history/meta attempt %d", i), a.(map[string]any), got["issuance"].(map[string]any)["attempts"].([]any)[i].(map[string]any))
 	}
 }
 
-func TestReadsStorageV1Inflight(t *testing.T) {
+func TestReadsStorageInflight(t *testing.T) {
 	h := newHarness(t)
-	loadFixture(t, h, storageV1)
+	loadFixture(t, h, storageDir)
 	h.account = "le"
 	ctx := context.Background()
 
-	ordering, err := loadInflight(ctx, h.storage, "ordering")
+	ordering, err := loadInflight(ctx, h.storage, h.id("ordering"))
 	if err != nil || ordering == nil {
 		t.Fatalf("ordering: %+v, %v", ordering, err)
 	}
@@ -354,7 +345,7 @@ func TestReadsStorageV1Inflight(t *testing.T) {
 
 func freshInflight(t *testing.T, e *managedEnv, name string) map[string]any {
 	t.Helper()
-	entry, err := e.storage.Get(context.Background(), inflightKey(name))
+	entry, err := e.storage.Get(context.Background(), inflightKey(e.id(name)))
 	if err != nil || entry == nil {
 		t.Fatalf("%s: %v", name, err)
 	}
@@ -365,30 +356,30 @@ func freshInflight(t *testing.T, e *managedEnv, name string) map[string]any {
 	return got
 }
 
-func TestWritesStorageV1InflightFields(t *testing.T) {
+func TestWritesStorageInflightFields(t *testing.T) {
 	e := newManagedEnv(t)
 	ctx := context.Background()
 	e.b.issuer.stop()
 
 	e.defineQuietly("ordering", "ordering.example.test", "www.ordering.example.test")
-	if claim, err := e.b.claimIssuance(ctx, e.storage, "ordering"); err != nil || claim == nil {
+	if claim, err := e.b.claimIssuance(ctx, e.storage, e.id("ordering")); err != nil || claim == nil {
 		t.Fatalf("claim = %v, %v", claim, err)
 	}
-	dnsEntry, _ := loadDNS(ctx, e.storage, "bind")
+	dnsEntry, _ := loadDNS(ctx, e.storage, e.account, "bind")
 	good, _ := dnsEntry.provider(&networkEntry{})
-	if err := e.b.recording(good, e.storage, "ordering").Present(ctx, "ordering.example.test", "tok1", "tok1.thumb"); err != nil {
+	if err := e.b.recording(good, e.storage, e.id("ordering")).Present(ctx, "ordering.example.test", "tok1", "tok1.thumb"); err != nil {
 		t.Fatal(err)
 	}
 	dnsEntry.Settings["tsig_secret"] = "d3Jvbmd3cm9uZ3dyb25nd3Jvbmd3cm9uZw=="
 	bad, _ := dnsEntry.provider(&networkEntry{})
-	if err := e.b.recording(bad, e.storage, "ordering").Present(ctx, "www.ordering.example.test", "tok2", "tok2.thumb"); err == nil {
+	if err := e.b.recording(bad, e.storage, e.id("ordering")).Present(ctx, "www.ordering.example.test", "tok2", "tok2.thumb"); err == nil {
 		t.Fatal("setup: a refused update succeeded")
 	}
-	if err := e.b.updateInflight(ctx, e.storage, "ordering", func(i *inflightEntry) { i.OrderURL = "https://ca.example/order/1" }); err != nil {
+	if err := e.b.updateInflight(ctx, e.storage, e.id("ordering"), func(i *inflightEntry) { i.OrderURL = "https://ca.example/order/1" }); err != nil {
 		t.Fatal(err)
 	}
 	got := freshInflight(t, e, "ordering")
-	want := readFixture(t, "certs/ordering/inflight")
+	want := readFixture(t, "accounts/le/certs/ordering/inflight")
 	missingFields(t, "certs/ordering/inflight", want, got)
 	for i, rec := range want["published"].([]any) {
 		missingFields(t, fmt.Sprintf("certs/ordering/inflight published %d", i), rec.(map[string]any), got["published"].([]any)[i].(map[string]any))
@@ -398,24 +389,24 @@ func TestWritesStorageV1InflightFields(t *testing.T) {
 	spec := e.defineQuietly("leftover", "leftover.example.test")
 	e.dns.SetTXT("_acme-challenge.leftover.example.test", dns01.GetChallengeInfo(ctx, "leftover.example.test", "tok.thumb").Value)
 	e.ok(logical.UpdateOperation, "config/dns/bind", map[string]any{"tsig_secret": "d3Jvbmd3cm9uZ3dyb25nd3Jvbmd3cm9uZw=="})
-	if err := putJSON(ctx, e.storage, inflightKey("leftover"), &inflightEntry{
+	if err := putJSON(ctx, e.storage, inflightKey(e.id("leftover")), &inflightEntry{
 		StartTime: time.Now().UTC(), DefinedTime: spec.DefinedTime, Reason: "renewal is due", Account: "le", DNS: "bind",
 		Published: []publishedRecord{{Domain: "leftover.example.test", Token: "tok", KeyAuth: "tok.thumb", PublishedTime: time.Now().UTC()}},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.b.recover(ctx, e.storage, "leftover"); err != nil {
+	if err := e.b.recover(ctx, e.storage, e.id("leftover")); err != nil {
 		t.Fatal(err)
 	}
 	got = freshInflight(t, e, "leftover")
-	want = readFixture(t, "certs/leftover/inflight")
+	want = readFixture(t, "accounts/le/certs/leftover/inflight")
 	missingFields(t, "certs/leftover/inflight", want, got)
 	missingFields(t, "certs/leftover/inflight published 0", want["published"].([]any)[0].(map[string]any), got["published"].([]any)[0].(map[string]any))
 }
 
-func TestReadsStorageV1ReuseKey(t *testing.T) {
+func TestReadsStorageReuseKey(t *testing.T) {
 	h := newHarness(t)
-	loadFixture(t, h, storageV1)
+	loadFixture(t, h, storageDir)
 	h.account = "le"
 	info := h.ok(logical.ReadOperation, "certs/reusing/info", nil)
 	if info.Data["definition"].(map[string]any)["reuse_key"] != true || info.Data["issuance"].(map[string]any)["rotate_key_requested"] != true {
@@ -423,20 +414,20 @@ func TestReadsStorageV1ReuseKey(t *testing.T) {
 	}
 }
 
-func TestWritesStorageV1ReuseKeyFields(t *testing.T) {
+func TestWritesStorageReuseKeyFields(t *testing.T) {
 	e := newManagedEnv(t)
 	e.defineReusing("reusing", "reusing.example.test")
 	e.waitFor("reusing", "the certificate and its schedule", func(m *certMeta) bool { return m.CurrentVersion == 1 && m.Renewal != nil })
 	e.b.issuer.stop()
-	if err := e.b.requestRenewal(context.Background(), e.storage, "le", "reusing", true); err != nil {
+	if err := e.b.requestRenewal(context.Background(), e.storage, e.id("reusing"), true); err != nil {
 		t.Fatal(err)
 	}
-	missingFields(t, "certs/reusing/meta", readFixture(t, "certs/reusing/meta"), freshMeta(t, e, "reusing"))
+	missingFields(t, "certs/reusing/meta", readFixture(t, "accounts/le/certs/reusing/meta"), freshMeta(t, e, "reusing"))
 }
 
-func TestReadsStorageV1Owners(t *testing.T) {
+func TestReadsStorageOwners(t *testing.T) {
 	h := newHarness(t)
-	loadFixture(t, h, storageV1)
+	loadFixture(t, h, storageDir)
 	h.account = "team-a"
 
 	if read := h.ok(logical.ReadOperation, "certs/owned/info", nil); read.Data["account"] != "team-a" {
@@ -451,14 +442,14 @@ func TestReadsStorageV1Owners(t *testing.T) {
 	}
 }
 
-func TestWritesStorageV1OwnerFields(t *testing.T) {
+func TestWritesStorageOwnerFields(t *testing.T) {
 	h := newHarness(t)
 	h.ok(logical.CreateOperation, "config/accounts/team-a", nil)
 	c := testcerts.New(t, testcerts.Options{Names: []string{"owned.example.test"}})
 	h.ok(logical.UpdateOperation, "accounts/team-a/certs/owned/import", map[string]any{"fullchain": c.Fullchain, "privkey": c.Privkey})
 	h.ok(logical.CreateOperation, "accounts/team-a/dns/owned", map[string]any{"type": "domeneshop", "api_token": "tok", "api_secret": "sec"})
 
-	for _, key := range []string{"certs/owned/meta", "config/dns/owned"} {
+	for _, key := range []string{"accounts/team-a/certs/owned/meta", "accounts/team-a/dns/owned"} {
 		entry, err := h.storage.Get(context.Background(), key)
 		if err != nil || entry == nil {
 			t.Fatalf("%s: %v", key, err)
@@ -471,14 +462,14 @@ func TestWritesStorageV1OwnerFields(t *testing.T) {
 	}
 }
 
-func TestWritesStorageV1Fields(t *testing.T) {
+func TestWritesStorageFields(t *testing.T) {
 	h := newHarness(t)
 	h.imp("example.com", testcerts.New(t, testcerts.Options{}))
 
-	for _, key := range []string{"certs/example.com/meta", "certs/example.com/versions/1"} {
-		fixtureKey := key
+	for _, key := range []string{metaKey(h.id("example.com")), versionKey(h.id("example.com"), 1)} {
+		fixtureKey := "accounts/example/certs/example.com/meta"
 		if strings.HasSuffix(key, "/versions/1") {
-			fixtureKey = "certs/example.com/versions/2"
+			fixtureKey = "accounts/example/certs/example.com/versions/2"
 		}
 		want := readFixture(t, fixtureKey)
 

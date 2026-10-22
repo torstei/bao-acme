@@ -89,7 +89,7 @@ func TestStatusRecordsAttempts(t *testing.T) {
 		t.Errorf("status = %v", s.Data)
 	}
 	for _, k := range []string{"failing_since", "last_error"} {
-		if _, ok := e.ok(logical.ReadOperation, "status", nil).Data["certificates"].(map[string]any)["www"].(map[string]any)[k]; ok {
+		if _, ok := e.ok(logical.ReadOperation, "status", nil).Data["certificates"].(map[string]any)[e.id("www")].(map[string]any)[k]; ok {
 			t.Errorf("mount status of an issued certificate shows %s", k)
 		}
 	}
@@ -113,13 +113,13 @@ func TestStatusRecordsAttempts(t *testing.T) {
 	if len(attempts) != 2 || attempts[0]["outcome"] != "failed" || attempts[0]["error"] == "" || attempts[0]["reason"] != "the current certificate does not match the definition" || attempts[1]["outcome"] != "issued" {
 		t.Errorf("attempts, newest first = %v", attempts)
 	}
-	mount := e.ok(logical.ReadOperation, "status", nil).Data["certificates"].(map[string]any)["www"].(map[string]any)
+	mount := e.ok(logical.ReadOperation, "status", nil).Data["certificates"].(map[string]any)[e.id("www")].(map[string]any)
 	if mount["failing_since"] != attempts[0]["start_time"] || mount["last_error"] != attempts[0]["error"] {
 		t.Errorf("mount status of a failing certificate = %v", mount)
 	}
 
 	e.define("www", "www.example.test", "api.example.test")
-	if m, _ := loadMeta(t.Context(), e.storage, "www"); m.Issuance == nil || len(m.Issuance.Attempts) < 2 {
+	if m, _ := loadMeta(t.Context(), e.storage, e.id("www")); m.Issuance == nil || len(m.Issuance.Attempts) < 2 {
 		t.Error("a new definition dropped the attempt history")
 	}
 }
@@ -128,7 +128,7 @@ func TestStatusShowsRunningJob(t *testing.T) {
 	h := newHarness(t)
 	h.imp("a", testcerts.New(t, testcerts.Options{}))
 	h.b.issuer.mu.Lock()
-	h.b.issuer.running["a"] = &job{Since: time.Now().Add(-time.Minute), Reason: "a renewal was requested"}
+	h.b.issuer.running[h.id("a")] = &job{Since: time.Now().Add(-time.Minute), Reason: "a renewal was requested"}
 	h.b.issuer.mu.Unlock()
 
 	s := h.ok(logical.ReadOperation, "certs/a/status", nil)
@@ -149,7 +149,7 @@ func TestMountStatus(t *testing.T) {
 		t.Errorf("status = %v", s.Data)
 	}
 	certs := s.Data["certificates"].(map[string]any)
-	if certs["soon"].(map[string]any)["state"] != stateExpired {
+	if certs[h.id("soon")].(map[string]any)["state"] != stateExpired {
 		t.Errorf("certificates = %v", certs)
 	}
 }
@@ -159,7 +159,7 @@ func TestMountStatusShowsAccountsAndLeftovers(t *testing.T) {
 	h.ok(logical.CreateOperation, "config/accounts/empty", nil)
 	h.imp("a", testcerts.New(t, testcerts.Options{}))
 	published := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
-	if err := putJSON(context.Background(), h.storage, inflightKey("a"), &inflightEntry{
+	if err := putJSON(context.Background(), h.storage, inflightKey(h.id("a")), &inflightEntry{
 		Account: "t", DNS: "bind", NextCleanupTime: time.Now().Add(time.Hour),
 		Published: []publishedRecord{{Domain: "a.example.test", Token: "tok", PublishedTime: published, CleanupError: "refused"}},
 	}); err != nil {
@@ -174,7 +174,7 @@ func TestMountStatusShowsAccountsAndLeftovers(t *testing.T) {
 	if a := accounts["t"].(map[string]any); a["registered"] != false || a["terms_of_service_agreed"] != false {
 		t.Errorf("account t = %v", a)
 	}
-	cert := s.Data["certificates"].(map[string]any)["a"].(map[string]any)
+	cert := s.Data["certificates"].(map[string]any)[h.id("a")].(map[string]any)
 	leftovers, _ := cert["leftovers"].([]map[string]any)
 	if len(leftovers) != 1 || leftovers[0]["domain"] != "a.example.test" || leftovers[0]["cleanup_error"] != "refused" || leftovers[0]["published_time"] != published {
 		t.Errorf("leftovers = %v", cert["leftovers"])
@@ -190,9 +190,9 @@ func TestMountStatusShowsAccountsAndLeftovers(t *testing.T) {
 	}
 
 	h.b.issuer.mu.Lock()
-	h.b.issuer.running["a"] = &job{Since: time.Now(), Reason: "a renewal was requested"}
+	h.b.issuer.running[h.id("a")] = &job{Since: time.Now(), Reason: "a renewal was requested"}
 	h.b.issuer.mu.Unlock()
-	cert = h.ok(logical.ReadOperation, "status", nil).Data["certificates"].(map[string]any)["a"].(map[string]any)
+	cert = h.ok(logical.ReadOperation, "status", nil).Data["certificates"].(map[string]any)[h.id("a")].(map[string]any)
 	if _, ok := cert["leftovers"]; ok {
 		t.Error("a running attempt's records are shown as leftovers")
 	}

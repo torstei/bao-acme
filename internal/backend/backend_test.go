@@ -71,6 +71,11 @@ func (h *harness) scoped(path string) string {
 	return path
 }
 
+// id is the storage id of the harness account's certificate name.
+func (h *harness) id(name string) string {
+	return certID(h.account, name)
+}
+
 func (h *harness) do(op logical.Operation, path string, data map[string]any) (*logical.Response, error) {
 	h.t.Helper()
 	return h.b.HandleRequest(context.Background(), &logical.Request{
@@ -238,7 +243,7 @@ func TestDestroyKeepsDescription(t *testing.T) {
 	}
 
 	var raw certVersion
-	if _, err := getJSON(context.Background(), h.storage, versionKey("a", 1), &raw); err != nil || raw.Privkey != "" {
+	if _, err := getJSON(context.Background(), h.storage, versionKey(h.id("a"), 1), &raw); err != nil || raw.Privkey != "" {
 		t.Errorf("key material still stored: %q, %v", raw.Privkey, err)
 	}
 }

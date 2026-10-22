@@ -22,12 +22,12 @@ const testKeyAuth = "token.thumbprint"
 func (e *managedEnv) defineQuietly(name string, names ...string) *managedSpec {
 	e.t.Helper()
 	spec := &managedSpec{Names: names, KeyType: "ecdsa-p256", Account: "le", DNS: "bind", DefinedTime: time.Now().UTC()}
-	m, _ := loadMeta(context.Background(), e.storage, name)
+	m, _ := loadMeta(context.Background(), e.storage, e.id(name))
 	if m == nil {
 		m = &certMeta{MaxVersions: defaultMaxVersions}
 	}
 	m.Managed = spec
-	if err := putJSON(context.Background(), e.storage, metaKey(name), m); err != nil {
+	if err := putJSON(context.Background(), e.storage, metaKey(e.id(name)), m); err != nil {
 		e.t.Fatal(err)
 	}
 	return spec
@@ -35,7 +35,7 @@ func (e *managedEnv) defineQuietly(name string, names ...string) *managedSpec {
 
 func (e *managedEnv) inflight(name string) *inflightEntry {
 	e.t.Helper()
-	i, err := loadInflight(context.Background(), e.storage, name)
+	i, err := loadInflight(context.Background(), e.storage, e.id(name))
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func (e *managedEnv) obtainBehindTheEnginesBack(name string, spec *managedSpec) 
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	dnsEntry, _ := loadDNS(ctx, e.storage, spec.DNS)
+	dnsEntry, _ := loadDNS(ctx, e.storage, e.account, spec.DNS)
 	provider, err := dnsEntry.provider(n)
 	if err != nil {
 		e.t.Fatal(err)
@@ -95,7 +95,7 @@ func TestRecoversACertificateTheCAIssued(t *testing.T) {
 	if orderURL == "" {
 		t.Fatal("no order URL")
 	}
-	if err := putJSON(context.Background(), e.storage, inflightKey("www"), &inflightEntry{
+	if err := putJSON(context.Background(), e.storage, inflightKey(e.id("www")), &inflightEntry{
 		StartTime: time.Now().UTC(), DefinedTime: spec.DefinedTime, Reason: "no certificate yet",
 		Account: "le", DNS: "bind", Privkey: keyPEM, OrderURL: orderURL,
 	}); err != nil {
@@ -112,7 +112,7 @@ func TestRecoversACertificateTheCAIssued(t *testing.T) {
 	if got.Privkey != keyPEM {
 		t.Error("stored a different key than the interrupted attempt's")
 	}
-	m, _ := loadMeta(context.Background(), e.storage, "www")
+	m, _ := loadMeta(context.Background(), e.storage, e.id("www"))
 	if a := m.Issuance.Attempts; len(a) == 0 || !strings.HasPrefix(a[0].Reason, "recovered after an interruption") {
 		t.Errorf("attempts = %+v", a)
 	}
@@ -126,7 +126,7 @@ func TestCleansUpLeftoverRecords(t *testing.T) {
 	e.imp("www", testcerts.New(t, testcerts.Options{Names: []string{"www.example.test"}}))
 	spec := e.defineQuietly("www", "www.example.test")
 
-	dnsEntry, _ := loadDNS(context.Background(), e.storage, "bind")
+	dnsEntry, _ := loadDNS(context.Background(), e.storage, e.account, "bind")
 	provider, _ := dnsEntry.provider(&networkEntry{})
 	if err := provider.Present(context.Background(), "www.example.test", "tok", testKeyAuth); err != nil {
 		t.Fatal(err)
@@ -135,7 +135,7 @@ func TestCleansUpLeftoverRecords(t *testing.T) {
 	if got := e.dns.TXT("_acme-challenge.www.example.test"); len(got) != 2 {
 		t.Fatalf("setup: TXT = %v", got)
 	}
-	if err := putJSON(context.Background(), e.storage, inflightKey("www"), &inflightEntry{
+	if err := putJSON(context.Background(), e.storage, inflightKey(e.id("www")), &inflightEntry{
 		StartTime: time.Now().UTC(), DefinedTime: spec.DefinedTime, Account: "le", DNS: "bind",
 		Published: []publishedRecord{{Domain: "www.example.test", Token: "tok", KeyAuth: testKeyAuth, PublishedTime: time.Now().UTC()}},
 	}); err != nil {
@@ -153,7 +153,7 @@ func TestCleansUpLeftoverRecords(t *testing.T) {
 	if got := e.dns.TXT("_acme-challenge.www.example.test"); len(got) != 1 || got[0] != "someone else's" {
 		t.Errorf("TXT after clean-up = %v, want only someone else's", got)
 	}
-	if m, _ := loadMeta(context.Background(), e.storage, "www"); m.CurrentVersion != 1 {
+	if m, _ := loadMeta(context.Background(), e.storage, e.id("www")); m.CurrentVersion != 1 {
 		t.Error("cleaning up issued a certificate that was not due")
 	}
 }
@@ -166,7 +166,7 @@ func TestLeftoverAlreadyGoneIsDropped(t *testing.T) {
 	spec := e.defineQuietly("www", "www.example.test")
 	e.ok(logical.UpdateOperation, "config/dns/bind", map[string]any{"tsig_secret": "d3Jvbmd3cm9uZ3dyb25nd3Jvbmd3cm9uZw=="})
 	e.dns.SetTXT("_acme-challenge.www.example.test", "someone else's")
-	if err := putJSON(context.Background(), e.storage, inflightKey("www"), &inflightEntry{
+	if err := putJSON(context.Background(), e.storage, inflightKey(e.id("www")), &inflightEntry{
 		StartTime: time.Now().UTC(), DefinedTime: spec.DefinedTime, Account: "le", DNS: "bind",
 		Published: []publishedRecord{{Domain: "www.example.test", Token: "tok", KeyAuth: testKeyAuth, PublishedTime: time.Now().UTC()}},
 	}); err != nil {
@@ -190,13 +190,13 @@ func TestLeftoverThatCannotBeRemovedIsKeptAndShown(t *testing.T) {
 	e := newManagedEnv(t)
 	e.imp("www", testcerts.New(t, testcerts.Options{Names: []string{"www.example.test"}}))
 	spec := e.defineQuietly("www", "www.example.test")
-	dnsEntry, _ := loadDNS(context.Background(), e.storage, "bind")
+	dnsEntry, _ := loadDNS(context.Background(), e.storage, e.account, "bind")
 	provider, _ := dnsEntry.provider(&networkEntry{})
 	if err := provider.Present(context.Background(), "www.example.test", "tok", testKeyAuth); err != nil {
 		t.Fatal(err)
 	}
 	e.ok(logical.UpdateOperation, "config/dns/bind", map[string]any{"tsig_secret": "d3Jvbmd3cm9uZ3dyb25nd3Jvbmd3cm9uZw=="})
-	if err := putJSON(context.Background(), e.storage, inflightKey("www"), &inflightEntry{
+	if err := putJSON(context.Background(), e.storage, inflightKey(e.id("www")), &inflightEntry{
 		StartTime: time.Now().UTC(), DefinedTime: spec.DefinedTime, Account: "le", DNS: "bind",
 		Published: []publishedRecord{{Domain: "www.example.test", Token: "tok", KeyAuth: testKeyAuth, PublishedTime: time.Now().UTC()}},
 	}); err != nil {
@@ -238,7 +238,7 @@ func TestUnrecoverableOrderIsDropped(t *testing.T) {
 	spec := e.defineQuietly("www", "www.example.test")
 	key, _ := cert.GenerateKey("ecdsa-p256")
 	keyPEM, _ := cert.EncodeKey(key)
-	if err := putJSON(context.Background(), e.storage, inflightKey("www"), &inflightEntry{
+	if err := putJSON(context.Background(), e.storage, inflightKey(e.id("www")), &inflightEntry{
 		StartTime: time.Now().UTC(), DefinedTime: spec.DefinedTime, Account: "le", DNS: "bind",
 		Privkey: keyPEM, OrderURL: "https://127.0.0.1:1/order/gone",
 	}); err != nil {

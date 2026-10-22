@@ -45,7 +45,7 @@ func TestReuseKeyKeepsThePublicKey(t *testing.T) {
 	if spkiOf(v3) == spkiOf(v2) {
 		t.Fatal("rotate_key kept the key")
 	}
-	if m, _ := loadMeta(context.Background(), e.storage, "www"); m.Issuance.RotateKey {
+	if m, _ := loadMeta(context.Background(), e.storage, e.id("www")); m.Issuance.RotateKey {
 		t.Error("rotate_key still requested after the renewal")
 	}
 	if v4 := e.renewTo("www", 4, nil); spkiOf(v4) != spkiOf(v3) {
@@ -114,7 +114,7 @@ func TestDestroyByFingerprintAndNoReuseOfADestroyedKey(t *testing.T) {
 		t.Errorf("warnings after destroying everywhere = %v", resp.Warnings)
 	}
 	for _, n := range []int{3, 4} {
-		if v, _ := loadVersion(context.Background(), e.storage, "www", n); !v.destroyed() {
+		if v, _ := loadVersion(context.Background(), e.storage, e.id("www"), n); !v.destroyed() {
 			t.Errorf("version %d still holds the destroyed key", n)
 		}
 	}
@@ -137,10 +137,10 @@ func TestKeyDestroyedDuringAnAttemptIsNotStored(t *testing.T) {
 	e.waitFor("www", "the certificate", hasVersion(1))
 	e.b.issuer.stop()
 
-	if err := e.b.requestRenewal(ctx, e.storage, "le", "www", false); err != nil {
+	if err := e.b.requestRenewal(ctx, e.storage, e.id("www"), false); err != nil {
 		t.Fatal(err)
 	}
-	claim, err := e.b.claimIssuance(ctx, e.storage, "www")
+	claim, err := e.b.claimIssuance(ctx, e.storage, e.id("www"))
 	if err != nil || claim == nil || claim.reusedFrom != 1 {
 		t.Fatalf("claim = %+v, %v", claim, err)
 	}
@@ -154,11 +154,11 @@ func TestKeyDestroyedDuringAnAttemptIsNotStored(t *testing.T) {
 		t.Error("destroying the key left it in the in-flight entry")
 	}
 
-	stored, err := e.b.recordIssuance(ctx, e.storage, "www", &claim.spec, bundle, nil, attemptRecord{Reason: claim.reason})
+	stored, err := e.b.recordIssuance(ctx, e.storage, e.id("www"), &claim.spec, bundle, nil, attemptRecord{Reason: claim.reason})
 	if stored || err == nil {
 		t.Fatalf("stored a certificate for a destroyed key: %v, %v", stored, err)
 	}
-	if m, _ := loadMeta(ctx, e.storage, "www"); m.CurrentVersion != 1 || !strings.Contains(m.Issuance.LastError, "destroyed") {
+	if m, _ := loadMeta(ctx, e.storage, e.id("www")); m.CurrentVersion != 1 || !strings.Contains(m.Issuance.LastError, "destroyed") {
 		t.Errorf("meta = %+v, issuance = %+v", m, m.Issuance)
 	}
 }

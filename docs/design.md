@@ -116,11 +116,10 @@ from another only by a trailing slash, so a policy cannot grant one where the ot
 follow OpenBao's usual name rule (letters, digits, `-`, `.`, `_`). The engine reads nothing into
 them: a certificate's DNS names are in its `names`, never taken from its name.
 
-4.1.5. Certificate and DNS provider names are unique per mount, not per account. Two teams sharing
-a mount cannot both have a certificate called `www`, and use a naming convention instead. Writing
-a name another account owns is refused, and another account's certificates and DNS providers read
-as not found. A DNS key that two accounts both need is entered twice, under two names: duplication,
-but it makes explicit who can use which credentials.
+4.1.5. Certificate and DNS provider names belong to their account, in the paths and in storage
+(§5.4.1). Two teams sharing a mount can both have a certificate called `www`, and neither can see,
+change or even detect the other's. A DNS key that two accounts both need is entered twice, once in
+each: duplication, but it makes explicit who can use which credentials.
 
 4.1.6. "Write-only" fields are accepted on write and never returned: reads show only whether they
 are set. A field that does not apply, such as an unset time or an empty error, is left out of every
@@ -301,8 +300,7 @@ split a version across entries and lose the single atomic write of §5.1.
 4.5.5. **Listing.** `covers=<host>` lists only certificates whose names cover the host, applying
 the one-level wildcard rule. It is a query parameter on `LIST`, which the `bao` CLI cannot pass;
 the README shows the HTTP call. With no match, the list is empty and the HTTP status is 404, as for
-any empty list in OpenBao. Listing finds an account's certificates by reading each certificate's
-owner, which is fine for hundreds of certificates.
+any empty list in OpenBao.
 
 ### 4.6. The description
 
@@ -361,8 +359,10 @@ challenge records could not be removed has `leftovers`, each with `domain`, `pub
 those without certificates, with `registered`, its `status` at the CA and
 `terms_of_service_agreed`.
 
-4.7.2.2. Its nested values are meant to be read with `bao read -format=yaml`, or as JSON. Its shape
-stays as it is until it is known what will monitor the engine (#45).
+4.7.2.2. In the mount's `status`, certificates are keyed `<account>/<name>`, since names repeat
+across accounts; an account's `status` uses plain names. Its nested values are meant to be read
+with `bao read -format=yaml`, or as JSON. Its shape stays as it is until it is known what will
+monitor the engine (#45).
 
 ### 4.8. Policies
 
@@ -408,13 +408,13 @@ each team's accounts, network settings and monitoring fully apart.
 
 ## 5. Storage
 
-5.1. **One entry per version.** Each version is one storage entry (`certs/<name>/versions/<n>`)
+5.1. **One entry per version.** Each version is one storage entry (`…/certs/<name>/versions/<n>`)
 holding the certificate, key and description together, so writing it is a single atomic `Put`,
 and the description can never belong to another certificate. The per-certificate entry
-`certs/<name>/meta` (current and latest version, `max_versions`, the definition and the issuance
+`…/certs/<name>/meta` (current and latest version, `max_versions`, the definition and the issuance
 state) is written after it. A crash in between leaves an unreferenced version, never a current one
 that is incomplete, and the next write overwrites it. Writes to one certificate are serialised by
-a per-name lock. `certs/` and `config/` are seal-wrapped. No transactions are needed, though
+a per-certificate lock. `accounts/` and `config/` are seal-wrapped. No transactions are needed, though
 OpenBao offers them to external plugins on Raft.
 
 5.2. **Validation on write**, for imports and for issued certificates alike:
@@ -442,18 +442,20 @@ so stop the importer before rolling back.
 barrier's encryption, and the mount's storage view (`logical/<mount-uuid>/`). The plugin sees only
 `Get`, `Put`, `List` and `Delete` of key → bytes. The key layout and the JSON in those entries are
 the engine's own format. Only the engine reads them; the API's responses are built from them, but
-are a separate contract (§4). Every release must read what every earlier release wrote, both on
-upgrade and when restoring an old Raft snapshot.
+are a separate contract (§4). From 1.0, every release must read what every earlier release wrote,
+both on upgrade and when restoring an old Raft snapshot (§5.4.4).
 
-5.4.1. Keys, relative to the mount. Stored names predate some API names, and keep them (§5.4.4):
+5.4.1. Keys, relative to the mount. Everything an account owns is stored under it, as the paths
+are, so names are unique per account by construction. Inside the engine, a certificate is
+identified as `<account>/<name>`; account names cannot contain a slash.
 
 | Key | Holds |
 |---|---|
-| `certs/<name>/meta` | The owning `account`, which version is current, the latest version number, `max_versions`, and for a managed certificate its `managed` definition (with `dns_provider`: the API's `dns`) and `issuance` state (including `failing_since`). |
-| `certs/<name>/versions/<n>` | One version: certificate, chain, key and description, in one entry. |
-| `certs/<name>/inflight` | While an attempt runs, or after it was interrupted: the attempt's private key, its definition, the order URL, and the challenge records not yet removed (§6.2). |
+| `accounts/<account>/certs/<name>/meta` | The `account`, which version is current, the latest version number, `max_versions`, and for a managed certificate its `managed` definition and `issuance` state (including `failing_since`). |
+| `accounts/<account>/certs/<name>/versions/<n>` | One version: certificate, chain, key and description, in one entry. |
+| `accounts/<account>/certs/<name>/inflight` | While an attempt runs, or after it was interrupted: the attempt's private key, its definition, the order URL, and the challenge records not yet removed (§6.2). |
+| `accounts/<account>/dns/<name>` | A DNS provider: its `account`, `type`, a `settings` object with its fields, credentials included, and the common timing settings. |
 | `config/accounts/<name>` | An ACME account: its settings, its key (PKCS #8 PEM), and, once registered, a `registration` object with the account URL, status, contact, the address last sent to the CA (`contact_sent`) and terms of service URL. |
-| `config/dns/<name>` | A DNS provider: its owning `account`, `provider` (the API's `type`), a `settings` object with its fields, credentials included, and the common timing settings. |
 | `config/network` | The proxy URL, credentials included, `proxy_ca_bundle`, and the DNS settings of §7.1.7. Absent means direct connections and the defaults. |
 
 5.4.2. A `meta` entry, and a `versions/<n>` entry (about 2 KB for ECDSA P-256), with the PEM
@@ -491,14 +493,9 @@ no `privkey` and gains `"destroyed_time"`. `imported_by` is absent when the requ
 identity. The description is kept as it was extracted at write time; a later release that
 describes certificates differently does not rewrite old versions.
 
-5.4.3. **Owners.** A certificate's `meta` and a DNS provider's entry name their owning account.
-A name is enough because an account cannot be deleted while it owns certificates or DNS providers,
-and accounts cannot be renamed, so no entry can point at an account that is gone, or at a new
-account later created under the same name. A managed definition also names its account
-(`managed.account`); when reading, `account` wins, and an entry without one belongs to
-`managed.account`. An imported certificate stored before accounts owned anything (v0.3.0 or
-earlier) has neither: no account path reaches it, but it is kept, and counted in the mount's
-`status`.
+5.4.3. **Owners.** The key names the owning account. An account cannot be deleted while it owns
+certificates or DNS providers, and accounts cannot be renamed, so no entry can belong to an account
+that is gone, or to a new account later created under the same name.
 
 5.4.4. Rules for changing the format:
 
@@ -508,22 +505,21 @@ older release did.
 
 5.4.4.2. Renaming or moving a field or key needs a migration: either converting entries when they
 are read, or a one-off upgrade at mount time (`InitializeFunc`) that records a storage version.
-With no storage-version entry, the format is the one described here (format 1). Renaming an API
-field does not rename the stored one, which is why `dns_provider` and `provider` remain in
-storage.
+From 1.0, renaming an API field therefore does not rename the stored one.
 
 5.4.4.3. Downgrading loses data. An older release that rewrites an entry, for example on
 `destroy`, drops the fields it does not know. Release notes must say so for the first release that
 adds a field whose loss matters.
 
-5.4.4.4. These rules apply from the first release, `v0.1.0`, regardless of semantic versioning's
-pre-1.0 leeway.
+5.4.4.4. These rules apply from 1.0. Before 1.0, a release may change the layout without a
+migration; its release notes then say what to create again. Otherwise every early layout would
+have to be read forever. v0.5.0 did this (§11.5.3).
 
-5.4.5. Tests enforce this format. `internal/backend/testdata/storage-v1/` holds real entries in
-this format, one file per storage key. A file is never regenerated once a release has shipped it.
-A new kind of entry adds its file when it is introduced. One test loads them and reads them through
-the API. Another checks that a fresh write still produces every field they have, so a renamed JSON
-tag fails CI. A new storage format adds a `storage-v2/` beside it, and `storage-v1/` stays.
+5.4.5. Tests enforce this format. `internal/backend/testdata/storage/` holds real entries in this
+format, one file per storage key. A new kind of entry adds its file when it is introduced. One test
+loads them and reads them through the API. Another checks that a fresh write still produces every
+field they have, so a renamed JSON tag fails CI. Until 1.0 these files follow the layout; from 1.0
+they are frozen, and a new storage format adds a directory beside them.
 
 ## 6. Issuing and renewing (managed certificates)
 
@@ -561,7 +557,7 @@ duplicate certificates (five a week at Let's Encrypt).
 
 6.2.2. Challenge records published but never removed.
 
-6.2.3. An attempt writes `certs/<name>/inflight` before anything reaches the CA. It holds the new
+6.2.3. An attempt writes its `inflight` entry (§5.4.1) before anything reaches the CA. It holds the new
 private key, the definition it is for, and, as they happen, the order URL and each challenge
 record. lego gets the engine's HTTP client, so the order URL is read from the CA's answer to
 `newOrder` without changing lego's flow. Each record is written down before it is published, and
@@ -863,6 +859,13 @@ certificates under their DNS provider's path (moving a zone would move the certi
 provider before removal, and only the exact value removed (§6.2.5); a CA that keeps no contact
 (§4.3.4); `replaces` dropped when the CA refuses it (§6.4.5); empty values left out of responses
 (§4.1.6).
+
+11.5.3. Storage moved under the account (§5.4.1). Until then, names were unique per mount, because
+the v0.4.0 paths named the account but the storage keys did not; a migration was avoided then, and
+the result was confusing. v0.5.0 changes the layout without a migration (§5.4.4.4): DNS providers
+and certificates stored by earlier releases are ignored, with a warning at start, and are created
+again. Account settings keep their keys. The stored fields `dns_provider` and `provider` took the
+API's names, `dns` and `type`.
 
 ## References
 

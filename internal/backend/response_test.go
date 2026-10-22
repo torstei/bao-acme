@@ -19,7 +19,7 @@ func TestReadsHaveNoEmptyValues(t *testing.T) {
 	e.define("www", "www.example.test")
 	e.waitFor("www", "the certificate", hasVersion(1))
 	e.waitFor("www", "a schedule", func(m *certMeta) bool { return m.Renewal != nil })
-	if err := putJSON(context.Background(), e.storage, inflightKey("www"), &inflightEntry{
+	if err := putJSON(context.Background(), e.storage, inflightKey(e.id("www")), &inflightEntry{
 		StartTime: time.Now().UTC(), Account: "le", DNS: "bind", NextCleanupTime: time.Now().Add(time.Hour),
 		Published: []publishedRecord{{Domain: "www.example.test", Token: "tok", PublishedTime: time.Now().UTC()}},
 	}); err != nil {

@@ -36,7 +36,6 @@ func TestAnotherAccountCannotReachACertificate(t *testing.T) {
 			t.Errorf("b read accounts/b/certs/shared%s: %v", path, resp.Data)
 		}
 	}
-	h.fails(logical.UpdateOperation, "accounts/b/certs/shared/import", map[string]any{"fullchain": c.Fullchain, "privkey": c.Privkey}, "used by another account")
 	h.fails(logical.UpdateOperation, "accounts/b/certs/shared/rollback", map[string]any{"version": 1}, "no certificate named")
 	h.fails(logical.UpdateOperation, "accounts/b/certs/shared/destroy", map[string]any{"versions": "1"}, "no certificate named")
 	h.fails(logical.UpdateOperation, "accounts/b/certs/shared/unmanage", nil, "not managed")
@@ -46,7 +45,7 @@ func TestAnotherAccountCannotReachACertificate(t *testing.T) {
 	if read := h.ok(logical.ReadOperation, "accounts/a/certs/shared", nil); read.Data["privkey"] != c.Privkey {
 		t.Error("b's delete removed a's certificate")
 	}
-	if v, _ := loadVersion(context.Background(), h.storage, "shared", 1); v == nil || v.destroyed() {
+	if v, _ := loadVersion(context.Background(), h.storage, certID("a", "shared"), 1); v == nil || v.destroyed() {
 		t.Error("b's destroy reached a's key")
 	}
 
@@ -71,9 +70,8 @@ func TestAnotherAccountCannotUseADNSProvider(t *testing.T) {
 	if keys, ok := h.ok(logical.ListOperation, "accounts/b/dns/", nil).Data["keys"]; ok {
 		t.Errorf("b's DNS list = %v", keys)
 	}
-	h.fails(logical.CreateOperation, "accounts/b/dns/dns-a", map[string]any{"type": "domeneshop", "api_token": "x", "api_secret": "y"}, "used by another account")
 	h.ok(logical.DeleteOperation, "accounts/b/dns/dns-a", nil)
-	if e, _ := loadDNS(context.Background(), h.storage, "dns-a"); e == nil || e.Settings["api_token"] != "t" {
+	if e, _ := loadDNS(context.Background(), h.storage, "a", "dns-a"); e == nil || e.Settings["api_token"] != "t" {
 		t.Error("b changed or removed a's DNS provider")
 	}
 
@@ -90,10 +88,10 @@ func TestNewEntriesRecordTheirAccount(t *testing.T) {
 	ctx := context.Background()
 	h.ok(logical.CreateOperation, "accounts/a/dns/dns-a", map[string]any{"type": "domeneshop", "api_token": "t", "api_secret": "s"})
 
-	if m, _ := loadMeta(ctx, h.storage, "shared"); m.Account != "a" {
+	if m, _ := loadMeta(ctx, h.storage, certID("a", "shared")); m.Account != "a" {
 		t.Errorf("certificate account = %q", m.Account)
 	}
-	if e, _ := loadDNS(ctx, h.storage, "dns-a"); e.Account != "a" {
+	if e, _ := loadDNS(ctx, h.storage, "a", "dns-a"); e.Account != "a" {
 		t.Errorf("DNS provider account = %q", e.Account)
 	}
 	c := testcerts.New(t, testcerts.Options{})
@@ -110,7 +108,7 @@ func TestStatusByAccount(t *testing.T) {
 
 	mount := h.ok(logical.ReadOperation, "status", nil)
 	certs := mount.Data["certificates"].(map[string]any)
-	if mount.Data["total"] != 2 || certs["shared"].(map[string]any)["account"] != "a" || certs["b-only"].(map[string]any)["account"] != "b" {
+	if mount.Data["total"] != 2 || certs["a/shared"].(map[string]any)["account"] != "a" || certs["b/b-only"].(map[string]any)["account"] != "b" {
 		t.Errorf("mount status = %v", mount.Data)
 	}
 	scoped := h.ok(logical.ReadOperation, "accounts/a/status", nil)
@@ -134,7 +132,7 @@ func TestDeletesRefusedWhileInUse(t *testing.T) {
 	}
 
 	e.ok(logical.UpdateOperation, "certs/www/unmanage", nil)
-	if err := putJSON(context.Background(), e.storage, inflightKey("www"), &inflightEntry{
+	if err := putJSON(context.Background(), e.storage, inflightKey(e.id("www")), &inflightEntry{
 		Account: "le", DNS: "bind",
 		Published: []publishedRecord{{Domain: "www.example.test", Token: "tok", KeyAuth: testKeyAuth}},
 	}); err != nil {
@@ -153,17 +151,54 @@ func TestDeletesRefusedWhileInUse(t *testing.T) {
 	}
 }
 
-func TestLegacyManagedCertificateBelongsToItsDefinitionsAccount(t *testing.T) {
-	m := &certMeta{Managed: &managedSpec{Account: "le"}}
-	if m.owner() != "le" {
-		t.Errorf("owner = %q", m.owner())
+// TestNamesArePerAccount: two accounts can use the same certificate and
+// DNS provider names, and each keeps its own.
+func TestNamesArePerAccount(t *testing.T) {
+	h, c := twoAccounts(t)
+	other := testcerts.New(t, testcerts.Options{Names: []string{"other.example.test"}})
+	h.ok(logical.UpdateOperation, "accounts/b/certs/shared/import", map[string]any{"fullchain": other.Fullchain, "privkey": other.Privkey})
+	h.ok(logical.CreateOperation, "accounts/a/dns/dns", map[string]any{"type": "domeneshop", "api_token": "a-token", "api_secret": "s"})
+	h.ok(logical.CreateOperation, "accounts/b/dns/dns", map[string]any{"type": "domeneshop", "api_token": "b-token", "api_secret": "s"})
+
+	if read := h.ok(logical.ReadOperation, "accounts/a/certs/shared", nil); read.Data["privkey"] != c.Privkey {
+		t.Error("b's certificate replaced a's")
 	}
-	m.Account = "other"
-	if m.owner() != "other" {
-		t.Errorf("owner with an account field = %q", m.owner())
+	if read := h.ok(logical.ReadOperation, "accounts/b/certs/shared", nil); read.Data["privkey"] != other.Privkey {
+		t.Error("b does not read its own certificate")
 	}
-	if (&certMeta{}).owner() != "" {
-		t.Error("an imported certificate without an account field has an owner")
+	for account, token := range map[string]string{"a": "a-token", "b": "b-token"} {
+		if e, _ := loadDNS(context.Background(), h.storage, account, "dns"); e == nil || e.Settings["api_token"] != token {
+			t.Errorf("%s's DNS provider = %v", account, e)
+		}
+	}
+
+	certs := h.ok(logical.ReadOperation, "status", nil).Data["certificates"].(map[string]any)
+	if len(certs) != 2 || certs["a/shared"] == nil || certs["b/shared"] == nil {
+		t.Errorf("mount status certificates = %v", certs)
+	}
+
+	h.ok(logical.DeleteOperation, "accounts/b/certs/shared", nil)
+	h.ok(logical.ReadOperation, "accounts/a/certs/shared", nil)
+	h.ok(logical.DeleteOperation, "accounts/b/dns/dns", nil)
+	h.ok(logical.DeleteOperation, "config/accounts/b", nil)
+}
+
+// TestOldLayoutIsIgnored: entries stored before v0.5.0 are neither read nor
+// counted, and do not stop the mount from starting.
+func TestOldLayoutIsIgnored(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	if err := putJSON(ctx, h.storage, "certs/old/meta", &certMeta{Account: "t", CurrentVersion: 1, LatestVersion: 1, MaxVersions: 3}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.b.Initialize(ctx, &logical.InitializationRequest{Storage: h.storage}); err != nil {
+		t.Fatalf("initialize with old entries: %v", err)
+	}
+	if s := h.ok(logical.ReadOperation, "status", nil); s.Data["total"] != 0 {
+		t.Errorf("status counts an old entry: %v", s.Data)
+	}
+	if resp, _ := h.do(logical.ReadOperation, "accounts/t/certs/old/info", nil); resp != nil {
+		t.Errorf("an old entry is read: %v", resp.Data)
 	}
 }
 

@@ -15,12 +15,13 @@ import (
 )
 
 func (b *backend) certExists(ctx context.Context, req *logical.Request, d *framework.FieldData) (bool, error) {
-	m, _, err := ownedMeta(ctx, req.Storage, d.Get("account").(string), d.Get("name").(string))
+	_, id := pathCertID(d)
+	m, err := loadMeta(ctx, req.Storage, id)
 	return m != nil, err
 }
 
 func (b *backend) handleDefine(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	account, name := d.Get("account").(string), d.Get("name").(string)
+	account, name := pathCertID(d)
 	resp, start, err := b.define(ctx, req.Storage, account, name, d)
 	if err == nil && start {
 		resp.Data["issuing"] = b.startIssuance(name)
@@ -33,7 +34,7 @@ func (b *backend) define(ctx context.Context, s logical.Storage, account, name s
 	l.Lock()
 	defer l.Unlock()
 
-	m, resp, err := newOwnedMeta(ctx, s, account, name)
+	m, resp, err := newMeta(ctx, s, account, name)
 	if err != nil {
 		return nil, false, err
 	}
@@ -77,7 +78,7 @@ func (b *backend) define(ctx context.Context, s logical.Storage, account, name s
 	} else if a.DirectoryURL == "" {
 		return logical.ErrorResponse("account %q has no directory_url, so it can hold only imported certificates", account), false, logical.ErrInvalidRequest
 	}
-	if e, _, err := ownedDNS(ctx, s, account, spec.DNS); err != nil {
+	if e, err := loadDNS(ctx, s, account, spec.DNS); err != nil {
 		return nil, false, err
 	} else if e == nil {
 		return logical.ErrorResponse("account %q has no DNS provider named %q", account, spec.DNS), false, logical.ErrInvalidRequest
@@ -124,12 +125,12 @@ func sameDefinition(a, b *managedSpec) bool {
 }
 
 func (b *backend) handleUnmanage(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	account, name := d.Get("account").(string), d.Get("name").(string)
+	account, name := pathCertID(d)
 	l := b.lock(name)
 	l.Lock()
 	defer l.Unlock()
 
-	m, _, err := ownedMeta(ctx, req.Storage, account, name)
+	m, err := loadMeta(ctx, req.Storage, name)
 	if err != nil {
 		return nil, err
 	}
@@ -174,19 +175,19 @@ func pathCertRenew(b *backend) *framework.Path {
 }
 
 func (b *backend) handleRenew(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	account, name := d.Get("account").(string), d.Get("name").(string)
-	if err := b.requestRenewal(ctx, req.Storage, account, name, d.Get("rotate_key").(bool)); err != nil {
+	_, name := pathCertID(d)
+	if err := b.requestRenewal(ctx, req.Storage, name, d.Get("rotate_key").(bool)); err != nil {
 		return logical.ErrorResponse(err.Error()), logical.ErrInvalidRequest
 	}
 	return &logical.Response{Data: map[string]any{"issuing": b.startIssuance(name)}}, nil
 }
 
-func (b *backend) requestRenewal(ctx context.Context, s logical.Storage, account, name string, rotateKey bool) error {
+func (b *backend) requestRenewal(ctx context.Context, s logical.Storage, name string, rotateKey bool) error {
 	l := b.lock(name)
 	l.Lock()
 	defer l.Unlock()
 
-	m, _, err := ownedMeta(ctx, s, account, name)
+	m, err := loadMeta(ctx, s, name)
 	if err != nil {
 		return err
 	}

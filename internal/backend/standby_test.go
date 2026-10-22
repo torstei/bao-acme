@@ -20,7 +20,7 @@ func TestNoBackgroundWorkOnAStandby(t *testing.T) {
 	e.system.setState(consts.ReplicationPerformanceStandby)
 
 	spec := e.defineQuietly("www", "www.example.test")
-	dnsEntry, _ := loadDNS(ctx, e.storage, "bind")
+	dnsEntry, _ := loadDNS(ctx, e.storage, e.account, "bind")
 	provider, err := dnsEntry.provider(&networkEntry{})
 	if err != nil {
 		t.Fatal(err)
@@ -33,17 +33,17 @@ func TestNoBackgroundWorkOnAStandby(t *testing.T) {
 		Account: "le", DNS: "bind",
 		Published: []publishedRecord{{Domain: "www.example.test", Token: "tok", KeyAuth: testKeyAuth, PublishedTime: time.Now().UTC()}},
 	}
-	if err := putJSON(ctx, e.storage, inflightKey("www"), inflight); err != nil {
+	if err := putJSON(ctx, e.storage, inflightKey(e.id("www")), inflight); err != nil {
 		t.Fatal(err)
 	}
 
 	e.periodic()
-	if j := e.b.issuer.job("www"); j != nil {
+	if j := e.b.issuer.job(e.id("www")); j != nil {
 		t.Errorf("the periodic function started a job on a standby: %+v", j)
 	}
 	// A job started anyway, say by a request just before the node stepped
 	// down, must also leave things alone.
-	e.b.startIssuance("www")
+	e.b.startIssuance(e.id("www"))
 	time.Sleep(300 * time.Millisecond)
 
 	if got := e.dns.TXT("_acme-challenge.www.example.test"); len(got) != 1 {
@@ -52,7 +52,7 @@ func TestNoBackgroundWorkOnAStandby(t *testing.T) {
 	if i := e.inflight("www"); i == nil || len(i.Published) != 1 || i.Published[0].CleanupError != "" {
 		t.Errorf("a standby changed the in-flight entry: %+v", i)
 	}
-	if m, _ := loadMeta(ctx, e.storage, "www"); m.CurrentVersion != 0 || m.Issuance != nil {
+	if m, _ := loadMeta(ctx, e.storage, e.id("www")); m.CurrentVersion != 0 || m.Issuance != nil {
 		t.Errorf("a standby attempted an issuance: %+v", m)
 	}
 

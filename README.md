@@ -140,9 +140,9 @@ bao secrets tune -plugin-version=v0.5.0 certificates
 bao plugin reload -plugin=bao-acme
 ```
 
-Remove the old block and binary once the mount runs the new version. Every release reads what
-earlier releases stored (see [design §5.4](docs/design.md)); the release notes say when the API
-changed.
+Remove the old block and binary once the mount runs the new version. Until 1.0, a release may
+change how data is stored; its release notes then say what to create again (see
+[design §5.4](docs/design.md)). They also say when the API changed.
 
 ### Registering it through the API
 
@@ -166,8 +166,8 @@ To build it yourself, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Paths are relative to the mount. An account's **settings** are under `config/accounts/<account>`;
 everything **done with** the account is under `accounts/<account>/`. Account, certificate and DNS
-provider names are labels of your choosing. Certificate and DNS provider names are unique per
-mount: writing a name another account owns is refused.
+provider names are labels of your choosing. Certificate and DNS provider names belong to their
+account: two accounts can each have a certificate called `web-certname`.
 
 A write that takes no fields, such as `register`, `renew` or `unmanage`, needs `bao write -f`;
 without it, `bao` stops with "Must supply data or use -force".
@@ -212,7 +212,7 @@ values on one line.
 | `…/certs/<name>/unmanage` | write | Back to import-only, keeping the versions. |
 | `accounts/<account>/certs/` | list | Names. With `covers=<host>`, only those whose names cover the host; the `bao` CLI cannot pass it, see below. |
 | `accounts/<account>/status` | read | The account's certificates, each with its state and expiry, and for a failing one `failing_since` and `last_error`, and any `leftovers`: challenge records not yet removed. Also `counts` per state, and the account's registration state under `accounts`. |
-| `status` | read | The same for every account, in one read. |
+| `status` | read | The same for every account, in one read, with certificates keyed `<account>/<name>`. |
 
 `bao list` takes no parameters, so ask for `covers` through the HTTP API:
 
