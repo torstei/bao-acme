@@ -140,9 +140,9 @@ bao secrets tune -plugin-version=v0.5.0 certificates
 bao plugin reload -plugin=bao-acme
 ```
 
-Remove the old block and binary once the mount runs the new version. Every release reads what
-earlier releases stored (see [design §5.4](docs/design.md)); the release notes say when the API
-changed.
+Remove the old block and binary once the mount runs the new version. Until 1.0, a release may
+change how data is stored; its release notes then say what to create again (see
+[design §5.4](docs/design.md)). They also say when the API changed.
 
 ### Registering it through the API
 
